@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from src.evironment.action_space.py import SequenceActionSpace
 
 class SequenceEditPolicy(nn.Module):
     def __init__(self, state_dim=1162, hidden_dim=512, max_seq_length=1000, num_amino_acids=20):
