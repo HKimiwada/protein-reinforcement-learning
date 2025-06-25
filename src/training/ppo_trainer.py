@@ -53,6 +53,7 @@ class BasePPOTrainer(ABC):
         # Training metrics
         self.episode_rewards = []
         self.episode_lengths = []
+        self.difficulty_levels = []  # Added difficulty level tracking
         self.policy_losses = []
         self.value_losses = []
         self.entropy_losses = []
@@ -316,6 +317,8 @@ class BasePPOTrainer(ABC):
         # Update episode tracking
         self.episode_rewards.append(episode_data['episode_reward'])
         self.episode_lengths.append(episode_data['episode_length'])
+        # Track difficulty level (use 0 as default if None)
+        self.difficulty_levels.append(difficulty_level if difficulty_level is not None else 0)
         self.total_episodes += 1
         self.total_steps += episode_data['episode_length']
         
@@ -371,7 +374,7 @@ class BasePPOTrainer(ABC):
         if not self.episode_rewards:
             return {}
         
-        return {
+        stats = {
             'total_episodes': self.total_episodes,
             'total_steps': self.total_steps,
             'avg_episode_reward': np.mean(self.episode_rewards),
@@ -382,6 +385,16 @@ class BasePPOTrainer(ABC):
             'avg_value_loss': np.mean(self.value_losses) if self.value_losses else 0.0,
             'avg_kl_divergence': np.mean(self.kl_divergences) if self.kl_divergences else 0.0
         }
+        
+        # Add difficulty level statistics if available
+        if self.difficulty_levels:
+            stats.update({
+                'avg_difficulty_level': np.mean(self.difficulty_levels),
+                'current_difficulty_level': self.difficulty_levels[-1] if self.difficulty_levels else 0,
+                'recent_avg_difficulty': np.mean(self.difficulty_levels[-100:]) if len(self.difficulty_levels) >= 100 else np.mean(self.difficulty_levels)
+            })
+        
+        return stats
 
 
 class PPOTrainer(BasePPOTrainer):
@@ -464,6 +477,7 @@ class DistributedPPOTrainer(BasePPOTrainer):
             return {
                 'episode_reward': result['episode_reward'],
                 'episode_length': result['episode_length'],
+                'difficulty_level': result.get('difficulty_level', 0),
                 'rank': self.rank
             }
         
@@ -479,6 +493,7 @@ class DistributedPPOTrainer(BasePPOTrainer):
             'model_state_dict': self.policy.module.state_dict() if hasattr(self.policy, 'module') else self.policy.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'training_stats': self.get_training_stats(),
+            'difficulty_levels': self.difficulty_levels.copy(),  # Save difficulty levels
             'rank': self.rank,
             'world_size': self.world_size
         }
@@ -507,6 +522,10 @@ class DistributedPPOTrainer(BasePPOTrainer):
             stats = checkpoint['training_stats']
             self.total_episodes = stats.get('total_episodes', 0)
             self.total_steps = stats.get('total_steps', 0)
+        
+        # Load difficulty levels if available
+        if 'difficulty_levels' in checkpoint:
+            self.difficulty_levels = checkpoint['difficulty_levels']
         
         episode = checkpoint.get('episode', 0)
         

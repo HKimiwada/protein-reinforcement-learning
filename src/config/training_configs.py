@@ -13,7 +13,7 @@ class TrainingConfig:
     # Training
     n_episodes: int = 5000
     max_steps: int = 50
-    learning_rate: float = 3e-4
+    learning_rate: float = 1e-4
     curriculum_strategy: str = 'mixed'  # 'linear', 'exponential', 'mixed', 'all'
     
     # PPO hyperparameters
@@ -42,7 +42,7 @@ def get_config(name: str = 'default') -> TrainingConfig:
     configs = {
         'default': TrainingConfig(),
         'quick_test': TrainingConfig(
-            n_episodes=100,
+            n_episodes=2000,
             max_steps=20,
             world_size=2,
             log_interval=10,

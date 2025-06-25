@@ -32,10 +32,13 @@ def set_seed(seed: int):
 def train_worker(rank: int, world_size: int, config: Dict[str, Any]):
     """Main training worker function"""
     
-    # Setup distributed training
-    setup_distributed_training(rank, world_size)
-    set_seed(config['seed'] + rank)
+    # Setup distributed training ONLY if multi-GPU
+    distributed_setup = False
+    if world_size > 1:
+        setup_distributed_training(rank, world_size)
+        distributed_setup = True
     
+    set_seed(config['seed'] + rank)
     device = torch.device(f'cuda:{rank}')
     
     try:
@@ -50,8 +53,7 @@ def train_worker(rank: int, world_size: int, config: Dict[str, Any]):
             random_state=config['seed']
         )
         
-        # Initialize models (you'll need to provide these)
-        # Replace with your actual model loading
+        # Initialize models
         esmc_checkpoint = "src/models/checkpoint-1452"
         esmc_model = AutoModelForMaskedLM.from_pretrained(esmc_checkpoint, trust_remote_code=True)
         esmc_tokenizer = esmc_model.tokenizer
@@ -78,15 +80,27 @@ def train_worker(rank: int, world_size: int, config: Dict[str, Any]):
         env = ProteinEditEnvironment(utils, reward_fn, max_steps=config['max_steps'])
         policy = SequenceEditPolicy().to(device)
         
-        trainer = DistributedPPOTrainer(
-            policy, env,
-            lr=config['learning_rate'],
-            clip_epsilon=config['clip_epsilon'],
-            value_coeff=config['value_coeff'],
-            entropy_coeff=config['entropy_coeff'],
-            rank=rank,
-            world_size=world_size
-        )
+        # Choose correct trainer based on world_size
+        if world_size > 1:
+            trainer = DistributedPPOTrainer(
+                policy, env,
+                lr=config['learning_rate'],
+                clip_epsilon=config['clip_epsilon'],
+                value_coeff=config['value_coeff'],
+                entropy_coeff=config['entropy_coeff'],
+                rank=rank,
+                world_size=world_size
+            )
+        else:
+            from training.ppo_trainer import PPOTrainer
+            trainer = PPOTrainer(
+                policy, env,
+                lr=config['learning_rate'],
+                clip_epsilon=config['clip_epsilon'],
+                value_coeff=config['value_coeff'],
+                entropy_coeff=config['entropy_coeff'],
+                device=device
+            )
         
         # Training loop
         best_reward = -float('inf')
@@ -159,7 +173,9 @@ def train_worker(rank: int, world_size: int, config: Dict[str, Any]):
             logger.finish()
     
     finally:
-        cleanup_distributed()
+        # Only cleanup distributed if it was set up
+        if distributed_setup:
+            cleanup_distributed()
 
 def main(config: Dict[str, Any]):
     """Main entry point for distributed training"""

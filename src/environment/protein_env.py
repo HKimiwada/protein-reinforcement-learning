@@ -1,3 +1,6 @@
+from src.environment.action_space import SequenceActionSpace
+from src.environment.state_encoder import SequenceStateEncoder
+
 class ProteinEditEnvironment:
     def __init__(self, utils, reward_function, max_steps=50):
         self.utils = utils
