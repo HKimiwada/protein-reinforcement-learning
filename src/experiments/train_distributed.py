@@ -52,10 +52,7 @@ def train_worker(rank: int, world_size: int, config: Dict[str, Any]):
         
         # Initialize models (you'll need to provide these)
         # Replace with your actual model loading
-        esmc_model = None  # Load your ESM-C model
-        esmc_tokenizer = None  # Load your ESM-C tokenizer
-
-        esmc_checkpoint = "/src/models/checkpoint-1452"
+        esmc_checkpoint = "src/models/checkpoint-1452"
         esmc_model = AutoModelForMaskedLM.from_pretrained(esmc_checkpoint, trust_remote_code=True)
         esmc_tokenizer = esmc_model.tokenizer
        
