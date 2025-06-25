@@ -1,0 +1,75 @@
+_wandb:
+    value:
+        cli_version: 0.19.10
+        m: []
+        python_version: 3.10.17
+        t:
+            "1":
+                - 1
+                - 5
+                - 11
+                - 49
+                - 53
+                - 55
+                - 71
+            "2":
+                - 1
+                - 5
+                - 11
+                - 41
+                - 49
+                - 53
+                - 55
+                - 71
+            "3":
+                - 13
+                - 15
+                - 16
+                - 23
+                - 55
+            "4": 3.10.17
+            "5": 0.19.10
+            "6": 4.48.1
+            "8":
+                - 5
+                - 9
+            "12": 0.19.10
+            "13": linux-x86_64
+checkpoint_interval:
+    value: 500
+clip_epsilon:
+    value: 0.2
+curriculum_strategy:
+    value: mixed
+dataset_path:
+    value: src/data/raw/V4_MaSp.csv
+entropy_coeff:
+    value: 0.01
+learning_rate:
+    value: 0.0003
+log_interval:
+    value: 10
+max_steps:
+    value: 20
+n_difficulty_levels:
+    value: 5
+n_episodes:
+    value: 100
+project_name:
+    value: spider-silk-rl
+run_name:
+    value: quick-test
+save_dir:
+    value: results/runs
+seed:
+    value: 42
+test_interval:
+    value: 20
+test_sequences_per_eval:
+    value: 20
+test_size:
+    value: 0.2
+value_coeff:
+    value: 0.5
+world_size:
+    value: 1

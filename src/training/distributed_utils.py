@@ -17,9 +17,9 @@ import torch.multiprocessing as mp
 from contextlib import contextmanager
 import time
 import psutil
+from datetime import timedelta
 
 logger = logging.getLogger(__name__)
-
 
 class DistributedConfig:
     """Configuration for distributed training"""
@@ -105,8 +105,8 @@ def setup_distributed_training(rank: int,
     # Initialize process group
     timeout = torch.distributed.default_pg_timeout
     if timeout_minutes > 0:
-        timeout = torch.timedelta(minutes=timeout_minutes)
-    
+        timeout = timedelta(minutes=timeout_minutes)
+   
     try:
         dist.init_process_group(
             backend=backend,

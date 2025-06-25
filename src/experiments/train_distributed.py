@@ -5,12 +5,12 @@ import numpy as np
 import torch
 import torch.multiprocessing as mp
 from typing import Dict, Any
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForMaskedLM, AutoModelForCausalLM, AutoTokenizer
 
 # Add src to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'src'))
 
-from training.distributed_utils import setup_distributed, cleanup_distributed
+from training.distributed_utils import setup_distributed_training, cleanup_distributed
 from training.ppo_trainer import DistributedPPOTrainer
 from models.policy import SequenceEditPolicy
 from models.reward_function import SpiderSilkRewardFunction
@@ -33,7 +33,7 @@ def train_worker(rank: int, world_size: int, config: Dict[str, Any]):
     """Main training worker function"""
     
     # Setup distributed training
-    setup_distributed(rank, world_size)
+    setup_distributed_training(rank, world_size)
     set_seed(config['seed'] + rank)
     
     device = torch.device(f'cuda:{rank}')
@@ -54,6 +54,10 @@ def train_worker(rank: int, world_size: int, config: Dict[str, Any]):
         # Replace with your actual model loading
         esmc_model = None  # Load your ESM-C model
         esmc_tokenizer = None  # Load your ESM-C tokenizer
+
+        esmc_checkpoint = "/src/models/checkpoint-1452"
+        esmc_model = AutoModelForMaskedLM.from_pretrained(esmc_checkpoint, trust_remote_code=True)
+        esmc_tokenizer = esmc_model.tokenizer
        
         trained_model_name='lamm-mit/SilkomeGPT'
         silkomegpt_tokenizer = AutoTokenizer.from_pretrained(trained_model_name, trust_remote_code=True)
