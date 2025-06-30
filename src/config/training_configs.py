@@ -17,9 +17,9 @@ class TrainingConfig:
     curriculum_strategy: str = 'mixed'  # 'linear', 'exponential', 'mixed', 'all'
     
     # PPO hyperparameters
-    clip_epsilon: float = 0.2
+    clip_epsilon: float = 0.4
     value_coeff: float = 0.5
-    entropy_coeff: float = 0.01
+    entropy_coeff: float = 0.1
     
     # Logging
     project_name: str = 'spider-silk-rl'
@@ -42,8 +42,8 @@ def get_config(name: str = 'default') -> TrainingConfig:
     configs = {
         'default': TrainingConfig(),
         'quick_test': TrainingConfig(
-            n_episodes=2000,
-            max_steps=20,
+            n_episodes=200,
+            max_steps=10,
             world_size=2,
             log_interval=10,
             test_interval=20,

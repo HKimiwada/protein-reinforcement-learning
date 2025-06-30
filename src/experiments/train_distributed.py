@@ -21,6 +21,70 @@ from utils.checkpoint_utils import save_checkpoint
 from utils.evaluation_utils import evaluate_policy
 from data.dataset import SpiderSilkDataset
 
+# SPECIFIC FIXES FOR THE TWO WARNINGS
+
+## WARNING 1 FIX: "Asking to truncate to max_length but no maximum length is provided..."
+
+def fix_max_length_warning(tokenizer):
+    """Fix the max_length truncation warning"""
+    
+    # Set explicit model_max_length if not set or too large
+    if not hasattr(tokenizer, 'model_max_length') or tokenizer.model_max_length > 1000000:
+        tokenizer.model_max_length = 1024
+        print(f"Set tokenizer.model_max_length = {tokenizer.model_max_length}")
+    
+    return tokenizer
+
+## WARNING 2 FIX: "The attention mask is not set and cannot be inferred..."
+
+def fix_attention_mask_warning(tokenizer, model):
+    """Fix the attention mask warning by ensuring different pad and eos tokens"""
+    
+    print(f"Current tokens:")
+    print(f"  eos_token: '{tokenizer.eos_token}' (id: {tokenizer.eos_token_id})")
+    print(f"  pad_token: '{tokenizer.pad_token}' (id: {tokenizer.pad_token_id})")
+    
+    # Check if pad_token is None or same as eos_token
+    if tokenizer.pad_token is None or tokenizer.pad_token_id == tokenizer.eos_token_id:
+        
+        # Option 1: Use existing special token
+        if hasattr(tokenizer, 'unk_token') and tokenizer.unk_token is not None:
+            tokenizer.pad_token = tokenizer.unk_token
+            print(f"Set pad_token to unk_token: '{tokenizer.pad_token}'")
+        
+        # Option 2: Add new pad token if no unk_token available
+        else:
+            special_tokens_dict = {'pad_token': '<PAD>'}
+            num_added_tokens = tokenizer.add_special_tokens(special_tokens_dict)
+            print(f"Added {num_added_tokens} new tokens")
+            
+            # IMPORTANT: Resize model embeddings when adding new tokens
+            model.resize_token_embeddings(len(tokenizer))
+            print(f"Resized model embeddings to {len(tokenizer)} tokens")
+    
+    print(f"Fixed tokens:")
+    print(f"  eos_token: '{tokenizer.eos_token}' (id: {tokenizer.eos_token_id})")
+    print(f"  pad_token: '{tokenizer.pad_token}' (id: {tokenizer.pad_token_id})")
+    
+    return tokenizer, model
+
+## COMPLETE FIX FUNCTION
+
+def fix_both_warnings(tokenizer, model):
+    """Fix both warnings in one function"""
+    
+    print("=== FIXING TOKENIZATION WARNINGS ===")
+    
+    # Fix Warning 1: max_length issue
+    tokenizer = fix_max_length_warning(tokenizer)
+    
+    # Fix Warning 2: attention mask issue  
+    tokenizer, model = fix_attention_mask_warning(tokenizer, model)
+    
+    print("=== WARNINGS FIXED ===")
+    
+    return tokenizer, model
+
 def set_seed(seed: int):
     """Set random seeds for reproducibility"""
     random.seed(seed)
@@ -57,7 +121,8 @@ def train_worker(rank: int, world_size: int, config: Dict[str, Any]):
         esmc_checkpoint = "src/models/checkpoint-1452"
         esmc_model = AutoModelForMaskedLM.from_pretrained(esmc_checkpoint, trust_remote_code=True)
         esmc_tokenizer = esmc_model.tokenizer
-       
+        esmc_tokenizer, esmc_model = fix_both_warnings(esmc_tokenizer, esmc_model)
+   
         trained_model_name='lamm-mit/SilkomeGPT'
         silkomegpt_tokenizer = AutoTokenizer.from_pretrained(trained_model_name, trust_remote_code=True)
         silkomegpt_tokenizer.pad_token = silkomegpt_tokenizer.eos_token

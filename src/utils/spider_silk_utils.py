@@ -33,7 +33,7 @@ class SpiderSilkUtils:
         self.model.eval()
 
         inputs = self.tokenizer(
-            sequence, return_tensors="pt", truncation=True, padding=True
+            sequence, return_tensors="pt", truncation=True, padding=True, return_attention_mask=True
         )
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
@@ -48,7 +48,7 @@ class SpiderSilkUtils:
         self.model.eval()
 
         inputs = self.tokenizer(
-            sequence, return_tensors="pt", truncation=True, padding=True
+            sequence, return_tensors="pt", truncation=True, padding=True, return_attention_mask=True
         )
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
@@ -66,7 +66,7 @@ class SpiderSilkUtils:
         sequence_list[position] = '<mask>'
         masked_sequence = ''.join(sequence_list)
 
-        inputs = self.tokenizer(masked_sequence, return_tensors='pt', padding=True, truncation=True)
+        inputs = self.tokenizer(masked_sequence, return_tensors='pt', padding=True, truncation=True, return_attention_mask=True)
         inputs = {k: v.to(self.device) for k, v in inputs.items()}
 
         with torch.no_grad():
