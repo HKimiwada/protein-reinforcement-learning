@@ -70,24 +70,21 @@ class SpiderSilkRewardFunction:
             return fallback
 
     def get_adaptive_weights(self, episode_number):
-        """Get adaptive weights with safety checks"""
+        """Get adaptive weights with STRONGER toughness focus"""
         frac = min(1.0, max(0.0, episode_number / self.max_episodes))
         
         weights = {
-            'toughness': self._validate_number(0.4 + 0.3 * frac, "toughness_weight", 0.4),
-            'realism': self._validate_number(0.5 - 0.3 * frac, "realism_weight", 0.5),
-            'exploration': self._validate_number(0.1 * (1.0 - frac), "exploration_weight", 0.1),
-            'efficiency': self._validate_number(0.0 + 0.05 * frac, "efficiency_weight", 0.0)
+            'toughness': 0.7 + 0.2 * frac,    # 70-90% weight on toughness (was 40-70%)
+            'realism': 0.2 - 0.1 * frac,      # 20-10% weight on realism (was 50-20%)
+            'exploration': 0.08 * (1.0 - frac), # 8-0% weight on exploration (was 10-0%)
+            'efficiency': 0.02 + 0.03 * frac    # 2-5% weight on efficiency (was 0-5%)
         }
         
-        # Ensure weights sum to approximately 1.0
+        # Ensure weights sum to 1.0
         total_weight = sum(weights.values())
         if total_weight > 0:
             for key in weights:
                 weights[key] /= total_weight
-        else:
-            # Fallback to equal weights
-            weights = {k: 0.25 for k in weights.keys()}
         
         return weights
 
@@ -463,7 +460,7 @@ class SpiderSilkRewardFunction:
 
     def toughness_reward(self, old_sequence, new_sequence):
         """
-        Calculate toughness reward with error handling and tighter bounds
+        Calculate toughness reward with STRONGER alignment to improvement
         """
         try:
             # Get toughness predictions
@@ -472,52 +469,23 @@ class SpiderSilkRewardFunction:
 
             # Validate predictions
             old_t = self._validate_number(old_t, "old_toughness", self.default_toughness)
-            old_s = self._validate_number(old_s, "old_std", self.default_std)
             new_t = self._validate_number(new_t, "new_toughness", self.default_toughness)
-            new_s = self._validate_number(new_s, "new_std", self.default_std)
 
-            # Ensure positive standard deviations
-            old_s = max(self.min_std, old_s)
-            new_s = max(self.min_std, new_s)
+            # Calculate raw improvement
+            raw_improvement = new_t - old_t
 
-            # Calculate improvements
-            raw_imp = new_t - old_t
-            penalty = 0.5 * (new_s - old_s)
-            adj_imp = raw_imp - penalty
+            # 🚀 FIXED: Much stronger rewards/penalties based on improvement direction
+            if raw_improvement > 0.001:  # Meaningful positive improvement
+                reward = raw_improvement * 10.0  # 10x multiplier for good improvements
+            elif raw_improvement > 0:  # Small positive improvement
+                reward = raw_improvement * 5.0   # 5x multiplier for small improvements
+            elif raw_improvement > -0.001:  # Very small negative
+                reward = raw_improvement * 2.0   # 2x penalty for small negative
+            else:  # Meaningful negative improvement
+                reward = raw_improvement * 15.0  # 15x penalty for bad improvements
 
-            # Validate intermediate calculations
-            raw_imp = self._validate_number(raw_imp, "raw_improvement", 0.0)
-            penalty = self._validate_number(penalty, "penalty", 0.0)
-            adj_imp = self._validate_number(adj_imp, "adjusted_improvement", 0.0)
-
-            # Calculate significance threshold safely
-            combined_s = self._safe_math_operation(
-                lambda: math.sqrt(old_s**2 + new_s**2),
-                fallback=self.default_std,
-                operation_name="combined_std"
-            )
-            
-            sig_thr = 1.96 * combined_s
-
-            # Calculate reward based on significance with tighter scaling
-            if adj_imp > sig_thr:
-                reward = adj_imp * 2.0  # Scale up significant improvements
-            elif adj_imp > 0:
-                reward = 0.1 * adj_imp  # Reduce reward for marginal improvements
-            else:
-                reward = 1.0 * adj_imp  # Reduce penalty for decreases
-
-            # Apply log transformation for positive rewards (more conservative)
-            if reward > 0:
-                reward = self._safe_math_operation(
-                    lambda: math.log1p(reward * 5) / 5,  # More conservative scaling
-                    fallback=reward * 0.05,
-                    operation_name="log_transform"
-                )
-
-            # Final validation and tighter clipping
-            reward = self._validate_number(reward, "final_toughness_reward", 0.0)
-            reward = max(-1.0, min(1.0, reward))  # Tighter bounds
+            # Clip to reasonable bounds
+            reward = max(-2.0, min(2.0, reward))
 
             return reward
 
