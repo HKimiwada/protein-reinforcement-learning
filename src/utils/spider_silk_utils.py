@@ -94,7 +94,7 @@ class SpiderSilkUtils:
         """Check if edit satisfies constraints"""
         # Perplexity constraint
         new_perplexity = self.calculate_perplexity(new_sequence)
-        if new_perplexity > 5.5:
+        if new_perplexity > 20:
             return False, f"Perplexity too high: {new_perplexity:.3f}"
 
         # Length constraint
