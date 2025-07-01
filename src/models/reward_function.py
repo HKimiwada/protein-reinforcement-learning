@@ -304,91 +304,110 @@ class SpiderSilkRewardFunction:
             return self.default_toughness, self.default_std
 
     def _validate_actual_improvement(self, new_seq: str, original_seq: str, target_improvement: float) -> Tuple[bool, float]:
-        """
-        Validate that the sequence actually improved compared to original
-        
-        Returns:
-            (is_valid, actual_improvement)
-        """
         try:
-            # Get current and original toughness
             current_tough, _ = self.predict_toughness(new_seq)
             original_tough, _ = self.predict_toughness(original_seq)
-            
-            # Calculate actual improvement
             actual_improvement = current_tough - original_tough
-            actual_improvement = self._validate_number(actual_improvement, "actual_improvement", 0.0)
             
-            # Check if actual improvement meets threshold
+            # Only require that actual improvement meets target - don't punish efficiency!
             required_improvement = target_improvement * self.real_improvement_threshold
             is_valid = actual_improvement >= required_improvement
             
-            logger.info(f"Actual improvement validation: {actual_improvement:.4f} vs required {required_improvement:.4f} = {is_valid}")
+            logger.info(f"✅ Real improvement: {actual_improvement:.4f} vs required {required_improvement:.4f}")
             
             return is_valid, actual_improvement
-            
         except Exception as e:
-            logger.error(f"Error in actual improvement validation: {e}")
+            logger.error(f"Error in improvement validation: {e}")
             return False, 0.0
 
     def calculate_reward(self,
-                         old_seq,
-                         new_seq,
-                         edit_history,
-                         original_seq,
-                         episode_number,
-                         target_improvement=0.05):  # Lowered from 0.15 to 0.05
+                     old_seq,
+                     new_seq,
+                     edit_history,
+                     original_seq,
+                     episode_number,
+                     target_improvement=0.02):
         """
-        Calculate reward with comprehensive error handling and anti-exploitation measures
+        Calculate reward with comprehensive error handling and fixed anti-exploitation
         """
+        
+        # ✅ Initialize ALL variables at the start to prevent reference errors
+        total_imp = 0.0
+        edit_count = 0
+        early_stop_penalty = 0.0
+        r_tough = 0.0
+        r_real = -0.1
+        r_explore = 0.0
+        r_eff = -0.01
+        actual_improvement = 0.0
+        
         try:
             # Input validation
             if not all(isinstance(seq, str) for seq in [old_seq, new_seq, original_seq]):
                 logger.warning("Invalid sequence types in reward calculation")
                 return {'total': -0.1, 'done': False, 'components': {}}
 
-            # Early stopping penalty for insufficient exploration
-            edit_count = len(edit_history)
-            if edit_count < self.min_edits_for_success:
-                early_stop_penalty = -0.5  # Strong penalty for stopping too early
+            # Safe edit count calculation
+            edit_count = len(edit_history) if edit_history else 0
+            
+            # Safe total improvement calculation
+            try:
+                total_imp = self.get_total_improvement(edit_history)
+                total_imp = self._validate_number(total_imp, "total_improvement", 0.0)
+            except Exception as e:
+                logger.warning(f"Error getting total improvement: {e}")
+                total_imp = 0.0
+
+            # Early stopping penalty - only for zero edits
+            if edit_count == 0:
+                early_stop_penalty = -0.2  # Small penalty for no exploration
             else:
                 early_stop_penalty = 0.0
 
-            # Early termination check with anti-exploitation
-            total_imp = self.get_total_improvement(edit_history)
+            # ✅ FIXED: Early termination check with PROPER anti-exploitation
             if total_imp >= target_improvement:
-                # Validate this is REAL improvement, not exploitation
-                is_valid, actual_improvement = self._validate_actual_improvement(
-                    new_seq, original_seq, target_improvement
-                )
-                
-                if is_valid and edit_count >= self.min_edits_for_success:
-                    logger.info(f"🎉 Legitimate early termination! Actual improvement: {actual_improvement:.4f}")
-                    return {
-                        'total': 5.0,
-                        'done': True,
-                        'components': {
-                            'toughness': 5.0,
-                            'realism': 0.0,
-                            'exploration': 0.0,
-                            'efficiency': 0.0
+                try:
+                    # Validate this is REAL improvement, not exploitation
+                    is_valid, actual_improvement = self._validate_actual_improvement(
+                        new_seq, original_seq, target_improvement
+                    )
+                    
+                    # ✅ REMOVED edit count requirement - efficiency should be rewarded!
+                    if is_valid:
+                        logger.info(f"🎉 SUCCESS! Actual improvement: {actual_improvement:.4f} in {edit_count} edits")
+                        return {
+                            'total': 5.0,
+                            'done': True,
+                            'components': {
+                                'toughness': 5.0,
+                                'realism': 0.0,
+                                'exploration': 0.0,
+                                'efficiency': 0.0
+                            }
                         }
-                    }
-                else:
-                    # Exploitation attempt detected!
-                    self.exploitation_attempts += 1
-                    logger.warning(f"🚨 Exploitation attempt detected! Total_imp: {total_imp:.4f}, "
-                                 f"Actual: {actual_improvement:.4f}, Edits: {edit_count}")
-                    return {
-                        'total': -2.0,  # Strong penalty for exploitation
-                        'done': False,
-                        'components': {
-                            'toughness': -2.0,
-                            'realism': 0.0,
-                            'exploration': 0.0,
-                            'efficiency': 0.0
-                        }
-                    }
+                    else:
+                        # Only penalize if actual improvement is significantly less than claimed
+                        if actual_improvement < target_improvement * 0.5:  # Less than 50% of target
+                            self.exploitation_attempts += 1
+                            logger.warning(f"🚨 Exploitation detected! Total_imp: {total_imp:.4f}, "
+                                        f"Actual: {actual_improvement:.4f}, Edits: {edit_count}")
+                            return {
+                                'total': -1.0,  # Reduced penalty
+                                'done': False,
+                                'components': {
+                                    'toughness': -1.0,
+                                    'realism': 0.0,
+                                    'exploration': 0.0,
+                                    'efficiency': 0.0
+                                }
+                            }
+                        else:
+                            # Close to target but not quite there - just continue normally
+                            logger.info(f"Close to target: {actual_improvement:.4f}, continuing...")
+                            
+                except Exception as e:
+                    logger.warning(f"Error in early termination check: {e}")
+                    # Continue with normal reward calculation
 
             # Get adaptive weights
             weights = self.get_adaptive_weights(episode_number)
@@ -430,20 +449,20 @@ class SpiderSilkRewardFunction:
 
             # Weighted sum with safety
             total = (weights['toughness'] * r_tough +
-                     weights['realism'] * r_real +
-                     weights['exploration'] * r_explore +
-                     weights['efficiency'] * r_eff +
-                     early_stop_penalty)  # Add early stop penalty
+                    weights['realism'] * r_real +
+                    weights['exploration'] * r_explore +
+                    weights['efficiency'] * r_eff +
+                    early_stop_penalty)
 
             total = self._validate_number(total, "total_reward", -0.1)
             
             # Clip to safe range
             total = float(np.clip(total, -5.0, 5.0))
 
-            # Debug logging
-            if episode_number % 100 == 0:  # Log every 100 episodes
+            # Debug logging every 50 episodes instead of 100
+            if episode_number % 50 == 0:
                 logger.info(f"Episode {episode_number}: total_imp={total_imp:.4f}, "
-                          f"edit_count={edit_count}, total_reward={total:.3f}")
+                        f"actual_imp={actual_improvement:.4f}, edit_count={edit_count}, reward={total:.3f}")
 
             return {
                 'total': total,
@@ -460,7 +479,18 @@ class SpiderSilkRewardFunction:
 
         except Exception as e:
             logger.error(f"Critical error in reward calculation: {e}")
-            return {'total': -0.1, 'done': False, 'components': {}}
+            # Return safe fallback with initialized variables
+            return {
+                'total': -0.1, 
+                'done': False, 
+                'components': {
+                    'toughness': r_tough,
+                    'realism': r_real,
+                    'exploration': r_explore,
+                    'efficiency': r_eff,
+                    'early_stop_penalty': early_stop_penalty
+                }
+            }
 
     def toughness_reward(self, old_sequence, new_sequence):
         """

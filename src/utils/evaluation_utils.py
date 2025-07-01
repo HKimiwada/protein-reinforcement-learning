@@ -1,6 +1,17 @@
 import torch
 import numpy as np
 from typing import Dict, List, Any
+import random
+
+def test_on_training_sequences(policy, env, dataset, device, n_sequences=10):
+    """Test if model works on training sequences to check for overfitting"""
+    if len(dataset.train_sequences) < n_sequences:
+        train_sequences = dataset.train_sequences
+    else:
+        train_sequences = random.sample(dataset.train_sequences, n_sequences)
+    
+    # Use the same evaluate_policy function but with training sequences
+    return evaluate_policy(policy, env, train_sequences, device)
 
 def evaluate_policy(policy: torch.nn.Module, env, test_sequences: List[str], 
                    device: torch.device, deterministic: bool = True) -> Dict[str, Any]:

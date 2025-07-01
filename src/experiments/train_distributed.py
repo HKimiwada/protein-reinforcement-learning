@@ -207,18 +207,36 @@ def train_worker(rank: int, world_size: int, config: Dict[str, Any]):
                     avg_reward = np.mean(trainer.episode_rewards[-config['log_interval']:])
                     print(f"Episode {episode}: avg_reward={avg_reward:.3f}, best={best_reward:.3f}")
                 
-                # Test evaluation
+                # Test evaluation - both training and test sequences
                 if episode % config['test_interval'] == 0 and episode > 0:
+                    # Import the new function
+                    from utils.evaluation_utils import test_on_training_sequences
+                    
+                    # Test on TRAINING sequences (should work if model is learning)
+                    train_results = test_on_training_sequences(
+                        trainer.policy if world_size == 1 else trainer.policy.module,
+                        env, dataset, device, config['test_sequences_per_eval']
+                    )
+                    
+                    # Test on TEST sequences (generalization check)
                     test_sequences = dataset.get_test_sequences(config['test_sequences_per_eval'])
                     test_results = evaluate_policy(
                         trainer.policy if world_size == 1 else trainer.policy.module,
                         env, test_sequences, device
                     )
                     
+                    # Log both results
+                    logger.log({
+                        'train_avg_improvement': train_results['avg_improvement'],
+                        'train_avg_reward': train_results['avg_reward'],
+                        'train_success_rate': train_results['success_rate']
+                    })
                     logger.log_test_results(test_results)
-                    print(f"Test @ {episode}: reward={test_results['avg_reward']:.3f}, "
-                          f"improvement={test_results['avg_improvement']:.4f}")
-                
+                    
+                    print(f"Test @ {episode}:")
+                    print(f"  TRAIN: reward={train_results['avg_reward']:.3f}, improvement={train_results['avg_improvement']:.4f}")
+                    print(f"  TEST:  reward={test_results['avg_reward']:.3f}, improvement={test_results['avg_improvement']:.4f}")
+                                
                 # Save checkpoint
                 if episode % config['checkpoint_interval'] == 0 and episode > 0:
                     save_dir = os.path.join(config['save_dir'], config['run_name'])
