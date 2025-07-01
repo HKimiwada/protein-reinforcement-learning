@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-standalone_debug.py - Standalone debugging script for Spider Silk RL Training
+debug_tools.py - Standalone debugging script for Spider Silk RL Training
 
 This script loads all models and components to run comprehensive debugging
 without needing an active training session.
 
 Usage (from project root):
-    python standalone_debug.py [--config CONFIG_NAME] [--checkpoint PATH]
+    python src/debug/debug_tools.py [--config CONFIG_NAME] [--checkpoint PATH]
 
 Examples:
-    python standalone_debug.py --config quick_test
-    python standalone_debug.py --checkpoint results/runs/my_run/checkpoint_ep_100.pt
+    python src/debug/debug_tools.py --config quick_test
+    python src/debug/debug_tools.py --checkpoint results/runs/my_run/checkpoint_ep_100.pt
 """
 
 import os
@@ -22,7 +22,9 @@ import numpy as np
 from typing import Dict, Any, Optional
 
 # Add src to path to match your working setup
-sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
+# Get the project root directory (two levels up from this file)
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, project_root)
 
 try:
     # Import using the exact same pattern as your working launch_experiment
@@ -35,8 +37,8 @@ try:
     from src.training.ppo_trainer import PPOTrainer
     from transformers import AutoModelForMaskedLM, AutoModelForCausalLM, AutoTokenizer
     
-    # Import debug functions from your debug folder
-    from debug.debug import (
+    # Import debug functions from the same directory
+    from src.debug.debug_tools import (
         test_silkomegpt_predictions, 
         test_improvement_detection,
         analyze_policy_behavior,
@@ -49,15 +51,14 @@ try:
 except ImportError as e:
     print(f"❌ Import error: {e}")
     print("Make sure you:")
-    print("  1. Are running from the project root directory")
-    print("  2. Have your debug/debug.py file with the debug functions")
+    print("  1. Are running from the project root directory OR using correct path")
+    print("  2. Have your src/debug/debug.py file with the debug functions")
     print("  3. Have all dependencies installed in your conda environment")
-    print("\nCurrent structure expected:")
-    print("  protein-reinforcement-learning/")
-    print("  ├── debug/")
-    print("  │   ├── debug.py")
-    print("  │   └── debug_tools.py (this file)")
-    print("  └── src/")
+    print(f"\nProject root detected as: {project_root}")
+    print(f"Current working directory: {os.getcwd()}")
+    print("\nTry running from project root:")
+    print("  cd protein-reinforcement-learning")
+    print("  python src/debug/debug_tools.py --config quick_test --basic-only")
     sys.exit(1)
 
 

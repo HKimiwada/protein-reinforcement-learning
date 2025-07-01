@@ -1,4 +1,3 @@
-# Code for debugging RL
 #!/usr/bin/env python3
 """
 src/debug.py - Debug utilities for spider silk RL training
