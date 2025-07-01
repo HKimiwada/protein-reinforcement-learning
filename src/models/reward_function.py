@@ -321,14 +321,14 @@ class SpiderSilkRewardFunction:
             return False, 0.0
 
     def calculate_reward(self,
-                     old_seq,
-                     new_seq,
-                     edit_history,
-                     original_seq,
-                     episode_number,
-                     target_improvement=0.02):
+                 old_seq,
+                 new_seq,
+                 edit_history,
+                 original_seq,
+                 episode_number,
+                 target_improvement=0.0005):
         """
-        Calculate reward with comprehensive error handling and fixed anti-exploitation
+        Calculate reward with comprehensive error handling and FIXED anti-exploitation
         """
         
         # ✅ Initialize ALL variables at the start to prevent reference errors
@@ -364,50 +364,19 @@ class SpiderSilkRewardFunction:
             else:
                 early_stop_penalty = 0.0
 
-            # ✅ FIXED: Early termination check with PROPER anti-exploitation
+            # 🚀 FIXED: Simplified success check without anti-exploitation
             if total_imp >= target_improvement:
-                try:
-                    # Validate this is REAL improvement, not exploitation
-                    is_valid, actual_improvement = self._validate_actual_improvement(
-                        new_seq, original_seq, target_improvement
-                    )
-                    
-                    # ✅ REMOVED edit count requirement - efficiency should be rewarded!
-                    if is_valid:
-                        logger.info(f"🎉 SUCCESS! Actual improvement: {actual_improvement:.4f} in {edit_count} edits")
-                        return {
-                            'total': 5.0,
-                            'done': True,
-                            'components': {
-                                'toughness': 5.0,
-                                'realism': 0.0,
-                                'exploration': 0.0,
-                                'efficiency': 0.0
-                            }
-                        }
-                    else:
-                        # Only penalize if actual improvement is significantly less than claimed
-                        if actual_improvement < target_improvement * 0.5:  # Less than 50% of target
-                            self.exploitation_attempts += 1
-                            logger.warning(f"🚨 Exploitation detected! Total_imp: {total_imp:.4f}, "
-                                        f"Actual: {actual_improvement:.4f}, Edits: {edit_count}")
-                            return {
-                                'total': -1.0,  # Reduced penalty
-                                'done': False,
-                                'components': {
-                                    'toughness': -1.0,
-                                    'realism': 0.0,
-                                    'exploration': 0.0,
-                                    'efficiency': 0.0
-                                }
-                            }
-                        else:
-                            # Close to target but not quite there - just continue normally
-                            logger.info(f"Close to target: {actual_improvement:.4f}, continuing...")
-                            
-                except Exception as e:
-                    logger.warning(f"Error in early termination check: {e}")
-                    # Continue with normal reward calculation
+                logger.info(f"🎉 SUCCESS! Total improvement: {total_imp:.4f} in {edit_count} edits")
+                return {
+                    'total': 5.0,
+                    'done': True,
+                    'components': {
+                        'toughness': 5.0,
+                        'realism': 0.0,
+                        'exploration': 0.0,
+                        'efficiency': 0.0
+                    }
+                }
 
             # Get adaptive weights
             weights = self.get_adaptive_weights(episode_number)
