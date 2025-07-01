@@ -42,8 +42,10 @@ def get_config(name: str = 'default') -> TrainingConfig:
     configs = {
         'default': TrainingConfig(),
         'quick_test': TrainingConfig(
-            n_episodes=200,
-            max_steps=10,
+            n_episodes=2000,
+            max_steps=20,
+            learning_rate=3e-4,
+            entropy_coeff=0.1,
             world_size=2,
             log_interval=10,
             test_interval=20,

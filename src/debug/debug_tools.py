@@ -1026,6 +1026,117 @@ def run_full_diagnosis(trainer, env, dataset, device: torch.device,
     
     return diagnostics
 
+def test_perplexity_distribution(env, dataset, verbose=True):
+    """Test perplexity distribution of real sequences and small edits"""
+    if verbose:
+        print("\n=== TESTING PERPLEXITY DISTRIBUTION ===")
+    
+    # Test original sequences
+    sequences = dataset.get_test_sequences(10)
+    original_perplexities = []
+    
+    for seq in sequences:
+        ppl = env.utils.calculate_perplexity(seq)
+        original_perplexities.append(ppl)
+    
+    if verbose:
+        print(f"Original sequences perplexity:")
+        print(f"  Mean: {np.mean(original_perplexities):.3f}")
+        print(f"  Std:  {np.std(original_perplexities):.3f}")
+        print(f"  Min:  {np.min(original_perplexities):.3f}")
+        print(f"  Max:  {np.max(original_perplexities):.3f}")
+        print(f"  95th percentile: {np.percentile(original_perplexities, 95):.3f}")
+    
+    # Test small conservative edits
+    test_seq = "GPGGQGPYGPGGQGPGGQGPYGPQAAAAAAAAAAAGPGGQGPYGPGGQ"
+    edit_perplexities = []
+    
+    conservative_edits = [
+        # Conservative substitutions (similar amino acids)
+        test_seq.replace('G', 'A', 1),  # G->A (both small)
+        test_seq.replace('A', 'G', 1),  # A->G 
+        test_seq.replace('P', 'S', 1),  # P->S (both small)
+        test_seq.replace('Q', 'N', 1),  # Q->N (both polar)
+        # Small insertions
+        test_seq[:10] + 'G' + test_seq[10:],  # Insert G
+        test_seq[:20] + 'A' + test_seq[20:],  # Insert A
+    ]
+    
+    for edit in conservative_edits:
+        ppl = env.utils.calculate_perplexity(edit)
+        edit_perplexities.append(ppl)
+    
+    if verbose:
+        print(f"\nConservative edits perplexity:")
+        print(f"  Mean: {np.mean(edit_perplexities):.3f}")
+        print(f"  Std:  {np.std(edit_perplexities):.3f}")
+        print(f"  Min:  {np.min(edit_perplexities):.3f}")
+        print(f"  Max:  {np.max(edit_perplexities):.3f}")
+    
+    # Test aggressive edits
+    aggressive_edits = [
+        test_seq.replace('G', 'W', 5),  # G->W (very different)
+        test_seq.replace('A', 'F', 3),  # A->F (very different)
+        test_seq + 'WWWWW',             # Add hydrophobic tail
+        test_seq[:-10],                 # Remove end
+    ]
+    
+    aggressive_perplexities = []
+    for edit in aggressive_edits:
+        ppl = env.utils.calculate_perplexity(edit)
+        aggressive_perplexities.append(ppl)
+    
+    if verbose:
+        print(f"\nAggressive edits perplexity:")
+        print(f"  Mean: {np.mean(aggressive_perplexities):.3f}")
+        print(f"  Std:  {np.std(aggressive_perplexities):.3f}")
+        print(f"  Min:  {np.min(aggressive_perplexities):.3f}")
+        print(f"  Max:  {np.max(aggressive_perplexities):.3f}")
+    
+    # Recommend threshold
+    original_95th = np.percentile(original_perplexities, 95)
+    conservative_max = np.max(edit_perplexities)
+    
+    recommended_threshold = max(original_95th, conservative_max) * 1.1
+    
+    if verbose:
+        print(f"\nRecommended perplexity threshold: {recommended_threshold:.3f}")
+        print(f"  Current threshold: 2.5")
+        print(f"  95th percentile of originals: {original_95th:.3f}")
+        print(f"  Max conservative edit: {conservative_max:.3f}")
+    
+    return {
+        'original_mean': np.mean(original_perplexities),
+        'original_95th': original_95th,
+        'conservative_max': conservative_max,
+        'aggressive_min': np.min(aggressive_perplexities),
+        'recommended_threshold': recommended_threshold
+    }
+
+# Quick test to run this
+def quick_perplexity_test():
+    """Quick test you can run right now"""
+    import sys
+    sys.path.append('.')
+    
+    # Setup (same as debug script)
+    device = torch.device('cuda')
+    config = get_config('quick_test').to_dict()
+    
+    # You'll need to run the setup function
+    print("Run this to test perplexity distribution:")
+    print("python -c \"")
+    print("import sys; sys.path.append('.')") 
+    print("from src.debug.debug import setup_models_and_environment")
+    print("from src.config.training_configs import get_config")
+    print("from src.debug.debug_tools import test_perplexity_distribution")
+    print("import torch")
+    print("device = torch.device('cuda')")
+    print("config = get_config('quick_test').to_dict()")
+    print("policy, env, dataset, utils, reward_fn = setup_models_and_environment(config, device)")
+    print("results = test_perplexity_distribution(env, dataset)")
+    print("print('Recommended threshold:', results['recommended_threshold'])")
+    print("\"")
 
 if __name__ == "__main__":
     print("Debug utilities for Spider Silk RL Training")
