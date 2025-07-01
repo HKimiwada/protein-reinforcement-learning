@@ -13,7 +13,7 @@ class TrainingConfig:
     # Training
     n_episodes: int = 5000
     max_steps: int = 50
-    learning_rate: float = 1e-4
+    learning_rate: float = 3e-5
     curriculum_strategy: str = 'mixed'  # 'linear', 'exponential', 'mixed', 'all'
     
     # PPO hyperparameters
