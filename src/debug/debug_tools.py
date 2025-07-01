@@ -641,6 +641,368 @@ def save_debug_report(diagnostics: Dict[str, Any], filepath: str = "debug_report
     
     print(f"Debug report saved to {filepath}")
 
+# Add this test to your debug_tools.py to check SilkomeGPT consistency
+
+def test_silkomegpt_consistency(reward_fn, verbose=True):
+    """Test if SilkomeGPT gives consistent predictions for the same sequence"""
+    if verbose:
+        print("\n=== TESTING SILKOMEGPT CONSISTENCY ===")
+    
+    test_seq = "AAAAGGAGGQGGYGGLGSQGAGQGGYGAGQGAGAAAAAAAAGGAGGQGGR"
+    
+    # Test same sequence multiple times
+    predictions = []
+    for i in range(5):
+        tough, std = reward_fn.predict_toughness(test_seq)
+        predictions.append((tough, std))
+        if verbose:
+            print(f"Prediction {i+1}: toughness={tough:.4f}, std={std:.4f}")
+    
+    # Check consistency
+    toughness_values = [p[0] for p in predictions]
+    std_values = [p[1] for p in predictions]
+    
+    toughness_std = np.std(toughness_values)
+    std_std = np.std(std_values)
+    
+    if verbose:
+        print(f"Toughness consistency (std): {toughness_std:.6f}")
+        print(f"Std consistency (std): {std_std:.6f}")
+    
+    if toughness_std > 0.001:
+        if verbose:
+            print("🚨 SilkomeGPT predictions are inconsistent!")
+        return False
+    
+    # Test if predictions change with sequence modifications
+    modified_seq = test_seq.replace('A', 'G', 1)  # Change one A to G
+    
+    orig_tough, _ = reward_fn.predict_toughness(test_seq)
+    mod_tough, _ = reward_fn.predict_toughness(modified_seq)
+    
+    change = abs(mod_tough - orig_tough)
+    if verbose:
+        print(f"Original: {orig_tough:.4f}")
+        print(f"Modified: {mod_tough:.4f}")
+        print(f"Change magnitude: {change:.4f}")
+    
+    if change < 0.0001:
+        if verbose:
+            print("🚨 SilkomeGPT doesn't respond to sequence changes!")
+        return False
+    
+    if verbose:
+        print("✓ SilkomeGPT consistency looks good")
+    
+    return True
+
+def test_reward_calculation_bug(env, verbose=True):
+    """Test if reward calculation has bugs"""
+    if verbose:
+        print("\n=== TESTING REWARD CALCULATION ===")
+    
+    # Use a simple sequence
+    test_seq = "GPGGQGPYGPGGQGPGGQGPYGPQAAAAAAAAAAAGPGGQGPYGPGGQ"
+    
+    # Reset environment
+    env.reset(test_seq)
+    original_seq = env.current_sequence
+    
+    # Get original toughness
+    orig_tough, _ = env.reward_fn.predict_toughness(original_seq)
+    if verbose:
+        print(f"Original toughness: {orig_tough:.4f}")
+    
+    # Make a simple substitution
+    action = {
+        'type': 'substitution',
+        'position': 0,
+        'amino_acid': 'A',
+        'log_prob': torch.tensor(0.0)
+    }
+    
+    state, reward, done, info = env.step(action)
+    new_seq = env.current_sequence
+    
+    # Get new toughness
+    new_tough, _ = env.reward_fn.predict_toughness(new_seq)
+    actual_improvement = new_tough - orig_tough
+    
+    if verbose:
+        print(f"New toughness: {new_tough:.4f}")
+        print(f"Actual improvement: {actual_improvement:.4f}")
+        print(f"Reward received: {reward:.3f}")
+        
+        if 'edit_info' in info and 'toughness_improvement' in info['edit_info']:
+            claimed_imp = info['edit_info']['toughness_improvement']
+            print(f"Claimed improvement: {claimed_imp:.4f}")
+            
+            if abs(claimed_imp - actual_improvement) > 0.001:
+                print("🚨 CLAIMED vs ACTUAL improvement mismatch!")
+                return False
+    
+    if verbose:
+        print("✓ Reward calculation looks consistent")
+    
+    return True
+
+# Add this to your comprehensive debugging function
+def debug_specific_issues(policy, env, dataset, device):
+    """Debug the specific issues we found"""
+    print("\n🔬 DEBUGGING SPECIFIC ISSUES")
+    print("="*50)
+    
+    # Test 1: SilkomeGPT consistency
+    silkomegpt_consistent = test_silkomegpt_consistency(env.reward_fn)
+    
+    # Test 2: Reward calculation
+    reward_calc_ok = test_reward_calculation_bug(env)
+    
+    # Test 3: Check if policy is actually learning
+    print("\n=== POLICY LEARNING TEST ===")
+    
+    # Create two identical states
+    test_seq = dataset.get_test_sequences(1)[0]
+    state1 = env.reset(test_seq).to(device)
+    state2 = env.reset(test_seq).to(device)
+    
+    policy.eval()
+    with torch.no_grad():
+        output1 = policy(state1.unsqueeze(0))
+        output2 = policy(state2.unsqueeze(0))
+        
+        # Check if outputs are identical for identical inputs
+        prob_diff = torch.abs(output1['edit_type'] - output2['edit_type']).max().item()
+        value_diff = torch.abs(output1['value'] - output2['value']).item()
+        
+        print(f"Policy output consistency:")
+        print(f"  Max probability difference: {prob_diff:.6f}")
+        print(f"  Value difference: {value_diff:.6f}")
+        
+        if prob_diff > 0.001 or value_diff > 0.001:
+            print("🚨 Policy outputs are inconsistent for same input!")
+        else:
+            print("✓ Policy is deterministic for same input")
+    
+    return {
+        'silkomegpt_consistent': silkomegpt_consistent,
+        'reward_calc_ok': reward_calc_ok
+    }
+
+# Add this function to your debug_tools.py file
+
+def test_step_by_step_toughness(env, verbose=True):
+    """Test toughness predictions step by step during environment execution"""
+    if verbose:
+        print("\n=== TESTING STEP-BY-STEP TOUGHNESS ===")
+    
+    # Use a simple sequence
+    test_seq = "GPGGQGPYGPGGQGPGGQGPYGPQAAAAAAAAAAAGPGGQGPYGPGGQ"
+    
+    # Reset environment and get initial prediction
+    env.reset(test_seq)
+    initial_tough, _ = env.reward_fn.predict_toughness(test_seq)
+    
+    if verbose:
+        print(f"Initial sequence: {test_seq[:30]}...")
+        print(f"Initial toughness: {initial_tough:.4f}")
+    
+    # Make a substitution action
+    action = {
+        'type': 'substitution',
+        'position': 0,  # Change first character
+        'amino_acid': 'A',
+        'log_prob': torch.tensor(0.0)
+    }
+    
+    # Capture sequence before and after
+    seq_before = env.current_sequence
+    tough_before, _ = env.reward_fn.predict_toughness(seq_before)
+    
+    if verbose:
+        print(f"\nBefore action:")
+        print(f"  Sequence: {seq_before[:30]}...")
+        print(f"  Toughness: {tough_before:.4f}")
+    
+    # Execute the action
+    state, reward, done, info = env.step(action)
+    seq_after = env.current_sequence
+    tough_after, _ = env.reward_fn.predict_toughness(seq_after)
+    
+    if verbose:
+        print(f"\nAfter action:")
+        print(f"  Sequence: {seq_after[:30]}...")
+        print(f"  Toughness: {tough_after:.4f}")
+        print(f"  Actual change: {tough_after - tough_before:.4f}")
+        print(f"  Reward received: {reward:.3f}")
+    
+    # Check edit info
+    if 'edit_info' in info:
+        edit_info = info['edit_info']
+        if verbose:
+            print(f"\nEdit info:")
+            for key, value in edit_info.items():
+                print(f"  {key}: {value}")
+        
+        # Check if claimed improvement matches actual
+        if 'toughness_improvement' in edit_info:
+            claimed = edit_info['toughness_improvement']
+            actual = tough_after - tough_before
+            diff = abs(claimed - actual)
+            
+            if verbose:
+                print(f"\nImprovement comparison:")
+                print(f"  Claimed: {claimed:.4f}")
+                print(f"  Actual:  {actual:.4f}")
+                print(f"  Difference: {diff:.4f}")
+            
+            if diff > 0.001:
+                if verbose:
+                    print("🚨 MAJOR DISCREPANCY between claimed and actual improvement!")
+                return False
+    
+    # Test if sequences are actually different
+    if seq_before == seq_after:
+        if verbose:
+            print("🚨 Sequence didn't change despite successful action!")
+        return False
+    
+    # Test toughness prediction consistency
+    tough_recheck, _ = env.reward_fn.predict_toughness(seq_after)
+    if abs(tough_after - tough_recheck) > 0.001:
+        if verbose:
+            print(f"🚨 Toughness prediction inconsistent: {tough_after:.4f} vs {tough_recheck:.4f}")
+        return False
+    
+    if verbose:
+        print("✓ Step-by-step toughness tracking looks consistent")
+    
+    return True
+
+
+def test_multiple_sequences_toughness(env, dataset, verbose=True):
+    """Test if toughness predictions vary across different sequences"""
+    if verbose:
+        print("\n=== TESTING TOUGHNESS VARIATION ACROSS SEQUENCES ===")
+    
+    # Get several test sequences
+    test_sequences = dataset.get_test_sequences(5)
+    predictions = []
+    
+    for i, seq in enumerate(test_sequences):
+        tough, std = env.reward_fn.predict_toughness(seq)
+        predictions.append(tough)
+        
+        if verbose:
+            print(f"Seq {i+1} (len={len(seq):3d}): {tough:.4f} ± {std:.4f}")
+    
+    # Check variance
+    toughness_std = np.std(predictions)
+    toughness_range = max(predictions) - min(predictions)
+    
+    if verbose:
+        print(f"\nVariation statistics:")
+        print(f"  Standard deviation: {toughness_std:.4f}")
+        print(f"  Range: {toughness_range:.4f}")
+        print(f"  Mean: {np.mean(predictions):.4f}")
+    
+    if toughness_std < 0.001:
+        if verbose:
+            print("🚨 Very low variance - all sequences getting similar predictions!")
+        return False
+    
+    if toughness_range < 0.005:
+        if verbose:
+            print("🚨 Very small range - predictions not varying much!")
+        return False
+    
+    if verbose:
+        print("✓ Good toughness variation across different sequences")
+    
+    return True
+
+
+# Update the debug_specific_issues function to include these new tests
+def debug_specific_issues_enhanced(policy, env, dataset, device):
+    """Enhanced debugging of specific issues we found"""
+    print("\n🔬 DEBUGGING SPECIFIC ISSUES (ENHANCED)")
+    print("="*50)
+    
+    # Test 1: SilkomeGPT consistency
+    print("\n1. Testing SilkomeGPT consistency...")
+    silkomegpt_consistent = test_silkomegpt_consistency(env.reward_fn)
+    
+    # Test 2: Reward calculation
+    print("\n2. Testing reward calculation...")
+    reward_calc_ok = test_reward_calculation_bug(env)
+    
+    # Test 3: Step-by-step toughness tracking
+    print("\n3. Testing step-by-step toughness...")
+    step_by_step_ok = test_step_by_step_toughness(env)
+    
+    # Test 4: Toughness variation across sequences
+    print("\n4. Testing toughness variation...")
+    toughness_variation_ok = test_multiple_sequences_toughness(env, dataset)
+    
+    # Test 5: Policy learning check
+    print("\n5. Testing policy learning...")
+    test_seq = dataset.get_test_sequences(1)[0]
+    state1 = env.reset(test_seq).to(device)
+    state2 = env.reset(test_seq).to(device)
+    
+    policy.eval()
+    with torch.no_grad():
+        output1 = policy(state1.unsqueeze(0))
+        output2 = policy(state2.unsqueeze(0))
+        
+        # Check if outputs are identical for identical inputs
+        prob_diff = torch.abs(output1['edit_type'] - output2['edit_type']).max().item()
+        value_diff = torch.abs(output1['value'] - output2['value']).item()
+        
+        print(f"Policy output consistency:")
+        print(f"  Max probability difference: {prob_diff:.6f}")
+        print(f"  Value difference: {value_diff:.6f}")
+        
+        policy_consistent = prob_diff <= 0.001 and value_diff <= 0.001
+        if policy_consistent:
+            print("✓ Policy is deterministic for same input")
+        else:
+            print("🚨 Policy outputs are inconsistent for same input!")
+    
+    # Summary
+    print(f"\n🎯 SPECIFIC ISSUES SUMMARY:")
+    print(f"  SilkomeGPT consistency: {'✅' if silkomegpt_consistent else '❌'}")
+    print(f"  Reward calculation: {'✅' if reward_calc_ok else '❌'}")
+    print(f"  Step-by-step tracking: {'✅' if step_by_step_ok else '❌'}")
+    print(f"  Toughness variation: {'✅' if toughness_variation_ok else '❌'}")
+    print(f"  Policy consistency: {'✅' if policy_consistent else '❌'}")
+    
+    all_good = all([silkomegpt_consistent, reward_calc_ok, step_by_step_ok, 
+                   toughness_variation_ok, policy_consistent])
+    
+    if not all_good:
+        print(f"\n🚨 CRITICAL ISSUES FOUND!")
+        if not silkomegpt_consistent:
+            print("  - SilkomeGPT giving inconsistent predictions")
+        if not reward_calc_ok:
+            print("  - Reward calculation has bugs")
+        if not step_by_step_ok:
+            print("  - Step-by-step toughness tracking broken")
+        if not toughness_variation_ok:
+            print("  - Toughness predictions too similar across sequences")
+        if not policy_consistent:
+            print("  - Policy network has consistency issues")
+    else:
+        print(f"\n✅ All specific tests passed!")
+    
+    return {
+        'silkomegpt_consistent': silkomegpt_consistent,
+        'reward_calc_ok': reward_calc_ok,
+        'step_by_step_ok': step_by_step_ok,
+        'toughness_variation_ok': toughness_variation_ok,
+        'policy_consistent': policy_consistent,
+        'all_tests_passed': all_good
+    }
 
 def run_full_diagnosis(trainer, env, dataset, device: torch.device, 
                       save_report: bool = True) -> Dict[str, Any]:

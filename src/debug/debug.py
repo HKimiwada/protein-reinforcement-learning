@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """
-debug_tools.py - Standalone debugging script for Spider Silk RL Training
+debug.py - Enhanced standalone debugging script for Spider Silk RL Training
 
 This script loads all models and components to run comprehensive debugging
 without needing an active training session.
 
 Usage (from project root):
-    python src/debug/debug_tools.py [--config CONFIG_NAME] [--checkpoint PATH]
+    python src/debug/debug.py [--config CONFIG_NAME] [--checkpoint PATH]
 
 Examples:
-    python src/debug/debug_tools.py --config quick_test
-    python src/debug/debug_tools.py --checkpoint results/runs/my_run/checkpoint_ep_100.pt
+    python src/debug/debug.py --config quick_test
+    python src/debug/debug.py --config quick_test --enhanced
+    python src/debug/debug.py --checkpoint results/runs/my_run/checkpoint_ep_100.pt
 """
 
 import os
@@ -45,20 +46,22 @@ try:
         debug_episode_details,
         diagnose_training_issues,
         run_full_diagnosis,
-        save_debug_report
+        save_debug_report,
+        test_silkomegpt_consistency,
+        test_reward_calculation_bug
     )
     
 except ImportError as e:
     print(f"❌ Import error: {e}")
     print("Make sure you:")
     print("  1. Are running from the project root directory OR using correct path")
-    print("  2. Have your src/debug/debug.py file with the debug functions")
+    print("  2. Have your src/debug/debug_tools.py file with the debug functions")
     print("  3. Have all dependencies installed in your conda environment")
     print(f"\nProject root detected as: {project_root}")
     print(f"Current working directory: {os.getcwd()}")
     print("\nTry running from project root:")
     print("  cd protein-reinforcement-learning")
-    print("  python src/debug/debug_tools.py --config quick_test --basic-only")
+    print("  python src/debug/debug.py --config quick_test --basic-only")
     sys.exit(1)
 
 
@@ -217,6 +220,219 @@ def load_checkpoint_if_provided(policy, checkpoint_path: Optional[str], device: 
         return 0
 
 
+def test_step_by_step_toughness(env, verbose=True):
+    """Test toughness predictions step by step during environment execution"""
+    if verbose:
+        print("\n=== TESTING STEP-BY-STEP TOUGHNESS ===")
+    
+    # Use a simple sequence
+    test_seq = "GPGGQGPYGPGGQGPGGQGPYGPQAAAAAAAAAAAGPGGQGPYGPGGQ"
+    
+    # Reset environment and get initial prediction
+    env.reset(test_seq)
+    initial_tough, _ = env.reward_fn.predict_toughness(test_seq)
+    
+    if verbose:
+        print(f"Initial sequence: {test_seq[:30]}...")
+        print(f"Initial toughness: {initial_tough:.4f}")
+    
+    # Make a substitution action
+    action = {
+        'type': 'substitution',
+        'position': 0,  # Change first character
+        'amino_acid': 'A',
+        'log_prob': torch.tensor(0.0)
+    }
+    
+    # Capture sequence before and after
+    seq_before = env.current_sequence
+    tough_before, _ = env.reward_fn.predict_toughness(seq_before)
+    
+    if verbose:
+        print(f"\nBefore action:")
+        print(f"  Sequence: {seq_before[:30]}...")
+        print(f"  Toughness: {tough_before:.4f}")
+    
+    # Execute the action
+    state, reward, done, info = env.step(action)
+    seq_after = env.current_sequence
+    tough_after, _ = env.reward_fn.predict_toughness(seq_after)
+    
+    if verbose:
+        print(f"\nAfter action:")
+        print(f"  Sequence: {seq_after[:30]}...")
+        print(f"  Toughness: {tough_after:.4f}")
+        print(f"  Actual change: {tough_after - tough_before:.4f}")
+        print(f"  Reward received: {reward:.3f}")
+    
+    # Check edit info
+    if 'edit_info' in info:
+        edit_info = info['edit_info']
+        if verbose:
+            print(f"\nEdit info:")
+            for key, value in edit_info.items():
+                print(f"  {key}: {value}")
+        
+        # Check if claimed improvement matches actual
+        if 'toughness_improvement' in edit_info:
+            claimed = edit_info['toughness_improvement']
+            actual = tough_after - tough_before
+            diff = abs(claimed - actual)
+            
+            if verbose:
+                print(f"\nImprovement comparison:")
+                print(f"  Claimed: {claimed:.4f}")
+                print(f"  Actual:  {actual:.4f}")
+                print(f"  Difference: {diff:.4f}")
+            
+            if diff > 0.001:
+                if verbose:
+                    print("🚨 MAJOR DISCREPANCY between claimed and actual improvement!")
+                return False
+    
+    # Test if sequences are actually different
+    if seq_before == seq_after:
+        if verbose:
+            print("🚨 Sequence didn't change despite successful action!")
+        return False
+    
+    # Test toughness prediction consistency
+    tough_recheck, _ = env.reward_fn.predict_toughness(seq_after)
+    if abs(tough_after - tough_recheck) > 0.001:
+        if verbose:
+            print(f"🚨 Toughness prediction inconsistent: {tough_after:.4f} vs {tough_recheck:.4f}")
+        return False
+    
+    if verbose:
+        print("✓ Step-by-step toughness tracking looks consistent")
+    
+    return True
+
+
+def test_multiple_sequences_toughness(env, dataset, verbose=True):
+    """Test if toughness predictions vary across different sequences"""
+    if verbose:
+        print("\n=== TESTING TOUGHNESS VARIATION ACROSS SEQUENCES ===")
+    
+    # Get several test sequences
+    test_sequences = dataset.get_test_sequences(5)
+    predictions = []
+    
+    for i, seq in enumerate(test_sequences):
+        tough, std = env.reward_fn.predict_toughness(seq)
+        predictions.append(tough)
+        
+        if verbose:
+            print(f"Seq {i+1} (len={len(seq):3d}): {tough:.4f} ± {std:.4f}")
+    
+    # Check variance
+    toughness_std = np.std(predictions)
+    toughness_range = max(predictions) - min(predictions)
+    
+    if verbose:
+        print(f"\nVariation statistics:")
+        print(f"  Standard deviation: {toughness_std:.4f}")
+        print(f"  Range: {toughness_range:.4f}")
+        print(f"  Mean: {np.mean(predictions):.4f}")
+    
+    if toughness_std < 0.001:
+        if verbose:
+            print("🚨 Very low variance - all sequences getting similar predictions!")
+        return False
+    
+    if toughness_range < 0.005:
+        if verbose:
+            print("🚨 Very small range - predictions not varying much!")
+        return False
+    
+    if verbose:
+        print("✓ Good toughness variation across different sequences")
+    
+    return True
+
+
+def run_enhanced_specific_tests(policy, env, dataset, device):
+    """Run enhanced specific debugging tests"""
+    print("\n🔬 RUNNING ENHANCED SPECIFIC TESTS")
+    print("="*50)
+    
+    # Test 1: SilkomeGPT consistency
+    print("\n1. Testing SilkomeGPT consistency...")
+    silkomegpt_consistent = test_silkomegpt_consistency(env.reward_fn)
+    
+    # Test 2: Reward calculation
+    print("\n2. Testing reward calculation...")
+    reward_calc_ok = test_reward_calculation_bug(env)
+    
+    # Test 3: Step-by-step toughness tracking
+    print("\n3. Testing step-by-step toughness...")
+    step_by_step_ok = test_step_by_step_toughness(env)
+    
+    # Test 4: Toughness variation across sequences
+    print("\n4. Testing toughness variation...")
+    toughness_variation_ok = test_multiple_sequences_toughness(env, dataset)
+    
+    # Test 5: Policy learning check
+    print("\n5. Testing policy learning...")
+    test_seq = dataset.get_test_sequences(1)[0]
+    state1 = env.reset(test_seq).to(device)
+    state2 = env.reset(test_seq).to(device)
+    
+    policy.eval()
+    with torch.no_grad():
+        output1 = policy(state1.unsqueeze(0))
+        output2 = policy(state2.unsqueeze(0))
+        
+        # Check if outputs are identical for identical inputs
+        prob_diff = torch.abs(output1['edit_type'] - output2['edit_type']).max().item()
+        value_diff = torch.abs(output1['value'] - output2['value']).item()
+        
+        print(f"Policy output consistency:")
+        print(f"  Max probability difference: {prob_diff:.6f}")
+        print(f"  Value difference: {value_diff:.6f}")
+        
+        policy_consistent = prob_diff <= 0.001 and value_diff <= 0.001
+        if policy_consistent:
+            print("✓ Policy is deterministic for same input")
+        else:
+            print("🚨 Policy outputs are inconsistent for same input!")
+    
+    # Summary
+    print(f"\n🎯 ENHANCED TESTS SUMMARY:")
+    print(f"  SilkomeGPT consistency: {'✅' if silkomegpt_consistent else '❌'}")
+    print(f"  Reward calculation: {'✅' if reward_calc_ok else '❌'}")
+    print(f"  Step-by-step tracking: {'✅' if step_by_step_ok else '❌'}")
+    print(f"  Toughness variation: {'✅' if toughness_variation_ok else '❌'}")
+    print(f"  Policy consistency: {'✅' if policy_consistent else '❌'}")
+    
+    all_good = all([silkomegpt_consistent, reward_calc_ok, step_by_step_ok, 
+                   toughness_variation_ok, policy_consistent])
+    
+    if not all_good:
+        print(f"\n🚨 CRITICAL ISSUES FOUND!")
+        if not silkomegpt_consistent:
+            print("  - SilkomeGPT giving inconsistent predictions")
+        if not reward_calc_ok:
+            print("  - Reward calculation has bugs")
+        if not step_by_step_ok:
+            print("  - Step-by-step toughness tracking broken")
+        if not toughness_variation_ok:
+            print("  - Toughness predictions too similar across sequences")
+        if not policy_consistent:
+            print("  - Policy network has consistency issues")
+    else:
+        print(f"\n✅ All enhanced tests passed!")
+    
+    return {
+        'silkomegpt_consistent': silkomegpt_consistent,
+        'reward_calc_ok': reward_calc_ok,
+        'step_by_step_ok': step_by_step_ok,
+        'toughness_variation_ok': toughness_variation_ok,
+        'policy_consistent': policy_consistent,
+        'all_tests_passed': all_good
+    }
+
+
 def run_basic_model_tests(policy, env, dataset, device: torch.device):
     """
     Run basic tests to ensure models are working
@@ -337,17 +553,18 @@ def run_comprehensive_debugging(policy, env, dataset, device: torch.device):
 
 def main():
     """Main debugging function"""
-    parser = argparse.ArgumentParser(description='Standalone Spider Silk RL Debugging')
+    parser = argparse.ArgumentParser(description='Enhanced Spider Silk RL Debugging')
     parser.add_argument('--config', default='quick_test', help='Configuration name')
     parser.add_argument('--checkpoint', help='Path to checkpoint file')
     parser.add_argument('--device', default='auto', help='Device to use (auto/cpu/cuda)')
     parser.add_argument('--seed', type=int, default=42, help='Random seed')
     parser.add_argument('--basic-only', action='store_true', help='Run only basic tests')
+    parser.add_argument('--enhanced', action='store_true', help='Run enhanced specific tests')
     parser.add_argument('--save-report', action='store_true', help='Save detailed report')
     
     args = parser.parse_args()
     
-    print("🕷️  Spider Silk RL Standalone Debugging")
+    print("🕷️  Spider Silk RL Enhanced Debugging")
     print("="*50)
     
     # Set random seeds
@@ -410,8 +627,13 @@ def main():
     
     print("\n✅ Basic tests passed! All core components are working.")
     
+    # Run enhanced tests if requested
+    enhanced_results = None
+    if args.enhanced:
+        enhanced_results = run_enhanced_specific_tests(policy, env, dataset, device)
+    
     # Run comprehensive debugging if requested
-    if not args.basic_only:
+    if not args.basic_only and not args.enhanced:
         diagnostics = run_comprehensive_debugging(policy, env, dataset, device)
         
         if diagnostics and args.save_report:
@@ -444,10 +666,27 @@ def main():
     else:
         print("❌ Sensitivity: SilkomeGPT shows no response to changes")
     
+    # Enhanced results summary
+    if enhanced_results:
+        print("\n🔬 ENHANCED TESTS RESULTS:")
+        if enhanced_results.get('all_tests_passed'):
+            print("✅ All enhanced tests passed - no critical issues found")
+        else:
+            print("❌ Enhanced tests found critical issues:")
+            if not enhanced_results.get('step_by_step_ok'):
+                print("   🚨 Step-by-step toughness tracking is broken!")
+            if not enhanced_results.get('reward_calc_ok'):
+                print("   🚨 Reward calculation has bugs!")
+            if not enhanced_results.get('silkomegpt_consistent'):
+                print("   🚨 SilkomeGPT predictions are inconsistent!")
+    
     if critical_failures:
         print(f"\n🚨 Fix these critical issues before training:")
         for failure in critical_failures:
             print(f"   - {failure}")
+        return 1
+    elif enhanced_results and not enhanced_results.get('all_tests_passed'):
+        print(f"\n🚨 Enhanced tests found issues - check the detailed output above")
         return 1
     else:
         print(f"\n🎉 All systems operational! Training should work.")
