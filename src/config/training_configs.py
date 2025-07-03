@@ -42,7 +42,7 @@ def get_config(name: str = 'default') -> TrainingConfig:
     configs = {
         'default': TrainingConfig(),
         'quick_test': TrainingConfig(
-            n_episodes=2000,
+            n_episodes=200,
             max_steps=20,
             learning_rate=3e-4,
             entropy_coeff=0.1,

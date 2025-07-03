@@ -19,6 +19,7 @@ class SpiderSilkRewardFunction:
         self.tokenizer = silkomegpt_tokenizer
         self.esmc = esmc_model.to(self.device)
         self.max_episodes = max_episodes
+        self.failed_parses: List[Tuple[str, str]] = []
         
         # MINIMAL FIX: Only fix tokenizer warnings without changing behavior
         if not hasattr(self.tokenizer, 'model_max_length') or self.tokenizer.model_max_length > 1000000:
@@ -172,7 +173,8 @@ class SpiderSilkRewardFunction:
 
     def predict_toughness(self, sequence: str) -> Tuple[float, float]:
         """
-        Predict toughness with comprehensive error handling and fallbacks
+        Predict toughness—and on any parsing failure where no numbers are found,
+        immediately print the sequence + raw output to the terminal.
         """
         try:
             # Input validation
@@ -180,11 +182,10 @@ class SpiderSilkRewardFunction:
                 logger.warning("Invalid sequence for toughness prediction")
                 self.prediction_errors += 1
                 return self.default_toughness, self.default_std
-            
+
             # Clean sequence
             valid_aas = set("ACDEFGHIKLMNPQRSTVWY")
             cleaned_sequence = ''.join([aa for aa in sequence if aa in valid_aas])
-            
             if len(cleaned_sequence) < 5:
                 logger.warning(f"Sequence too short for toughness prediction: {len(cleaned_sequence)}")
                 self.prediction_errors += 1
@@ -192,52 +193,51 @@ class SpiderSilkRewardFunction:
 
             # Device setup
             self.silkomegpt.to(self.device)
+            self.tokenizer.pad_token = self.tokenizer.eos_token  # ensure pad_token is set
 
             # Build prompt
             prompt = f"CalculateSilkContent<{cleaned_sequence}>"
-            
+
+            # Tokenize with attention mask & padding
             try:
-                # MINIMAL FIX: Use proper tokenization but keep same behavior
                 inputs = self.tokenizer(
                     prompt,
-                    add_special_tokens=False,
                     return_tensors="pt",
-                    max_length=1024,
+                    padding=True,
                     truncation=True,
-                    padding=False,  # Keep original behavior - no padding
-                    return_attention_mask=False  # Keep original behavior - no attention mask
+                    max_length=1024,
+                    return_attention_mask=True,
+                    add_special_tokens=False
                 )
-                tokens = inputs['input_ids'].to(self.device)
-                
+                input_ids = inputs.input_ids.to(self.device)
+                attention_mask = inputs.attention_mask.to(self.device)
             except Exception as e:
                 logger.warning(f"Tokenization error in toughness prediction: {e}")
                 self.prediction_errors += 1
                 return self.default_toughness, self.default_std
 
-            # KEEP ORIGINAL GENERATION: Don't change what was working
+            # Generate output
             try:
                 with torch.no_grad():
                     output_ids = self.silkomegpt.generate(
-                        inputs=tokens,  # Keep original parameter name
-                        eos_token_id=self.tokenizer.eos_token_id,
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
                         pad_token_id=self.tokenizer.pad_token_id,
-                        max_length=min(tokens.shape[1] + 50, 1024),
-                        do_sample=False,  # Keep original settings
+                        eos_token_id=self.tokenizer.eos_token_id,
+                        max_length=min(input_ids.shape[1] + 50, 1024),
+                        do_sample=False,
                         temperature=1.0,
                         top_p=1.0,
                         num_return_sequences=1
                     )[0]
-
                 decoded = self.tokenizer.decode(output_ids, skip_special_tokens=True)
-                
             except Exception as e:
                 logger.warning(f"Generation error: {e}")
                 self.prediction_errors += 1
                 return self.default_toughness, self.default_std
 
-            # KEEP ORIGINAL PARSING: Don't change what was working
+            # Parse out [toughness, std, ...]
             try:
-                # Primary parsing strategy
                 m = re.search(r"\[([^\]]+)\]", decoded)
                 if m:
                     parts = [p.strip() for p in m.group(1).split(",")]
@@ -247,51 +247,53 @@ class SpiderSilkRewardFunction:
                             num = float(p)
                             if np.isfinite(num):
                                 nums.append(num)
-                        except (ValueError, TypeError):
+                        except:
                             continue
-                    
                     if len(nums) >= 1:
                         norm_toughness = nums[0]
                         norm_std = nums[1] if len(nums) > 1 else 0.1
                     else:
                         raise ValueError("No valid numbers found")
                 else:
-                    # Fallback parsing strategies
+                    # fallback: any numbers
                     numbers = re.findall(r'-?\d+\.?\d*', decoded)
                     if len(numbers) >= 1:
                         norm_toughness = float(numbers[0])
                         norm_std = float(numbers[1]) if len(numbers) > 1 else 0.1
                     else:
-                        raise ValueError("No numbers found in output")
-
+                        # --- Immediate terminal output on failure ---
+                        self.failed_parses.append((cleaned_sequence, decoded))
+                        self.prediction_errors += 1
+                        print(f"[Parsing failure] Sequence: {cleaned_sequence}")
+                        print(f"[Parsing failure] Output  : {decoded}")
+                        return self.default_toughness, self.default_std
             except Exception as e:
                 logger.warning(f"Parsing error: {e}, decoded: {decoded[:100]}")
                 self.prediction_errors += 1
                 return self.default_toughness, self.default_std
 
-            # Validate normalized values
+            # Validate & clamp normalized
             norm_toughness = self._validate_number(norm_toughness, "norm_toughness", 0.5)
-            norm_std = self._validate_number(norm_std, "norm_std", 0.1)
-            
-            # Clamp normalized values to reasonable range
-            norm_toughness = max(0.0, min(1.0, norm_toughness))
-            norm_std = max(0.0, min(1.0, norm_std))
+            norm_std       = self._validate_number(norm_std,       "norm_std",       0.1)
+            norm_toughness = min(max(norm_toughness, 0.0), 1.0)
+            norm_std       = min(max(norm_std,       0.0), 1.0)
 
-            # Denormalize with safety checks
-            def safe_denormalize(x: float, lo: float, hi: float, name: str) -> float:
+            # Denormalization helper
+            def safe_denorm(x, lo, hi, name):
                 try:
-                    result = x * (hi - lo) + lo
-                    return self._validate_number(result, f"denorm_{name}", (lo + hi) / 2)
+                    val = x * (hi - lo) + lo
+                    return self._validate_number(val, f"denorm_{name}", (lo + hi) / 2)
                 except Exception as e:
                     logger.warning(f"Denormalization error for {name}: {e}")
                     return (lo + hi) / 2
 
-            predicted_toughness = safe_denormalize(norm_toughness, 0.005, 0.39, "toughness")
-            predicted_stddev = safe_denormalize(norm_std, 0.001, 0.136, "stddev")
+            # Convert back to real units
+            predicted_toughness = safe_denorm(norm_toughness, 0.005, 0.39, "toughness")
+            predicted_stddev    = safe_denorm(norm_std,       0.001, 0.136, "stddev")
 
-            # Final bounds checking
-            predicted_toughness = max(self.min_toughness, min(self.max_toughness, predicted_toughness))
-            predicted_stddev = max(self.min_std, min(self.max_std, predicted_stddev))
+            # Final bounds check
+            predicted_toughness = min(max(predicted_toughness, self.min_toughness), self.max_toughness)
+            predicted_stddev    = min(max(predicted_stddev,    self.min_std),       self.max_std)
 
             return predicted_toughness, predicted_stddev
 

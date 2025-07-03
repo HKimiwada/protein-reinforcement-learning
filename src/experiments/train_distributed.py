@@ -129,7 +129,7 @@ def train_worker(rank: int, world_size: int, config: Dict[str, Any]):
         silkomegpt_model = AutoModelForCausalLM.from_pretrained(
             trained_model_name,
             trust_remote_code=True
-        )
+        ).to(device)
         silkomegpt_model.config.use_cache = False
 
         # Build components

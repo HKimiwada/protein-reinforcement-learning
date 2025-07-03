@@ -82,10 +82,14 @@ class SequenceEditPolicy(nn.Module):
         }
 
     def get_action(self, state, deterministic=False, sequence_length=None):
-        """Get action from policy (for inference)"""
+        """Get action from policy (for inference) - FIXED VERSION"""
         # Ensure state is on correct device
         device = next(self.parameters()).device
         state = state.to(device)
+        
+        # Use default sequence length if not provided
+        if sequence_length is None:
+            sequence_length = self.default_seq_length
         
         with torch.no_grad():
             # Handle both single state and batch
@@ -97,35 +101,61 @@ class SequenceEditPolicy(nn.Module):
                 squeeze_output = False
 
             if deterministic:
-                # Greedy action selection
+                # 🚀 FIXED: Greedy action selection with proper bounds checking
                 if squeeze_output:
-                    edit_type_idx = output['edit_type'].squeeze(0).argmax().item()
-                    position_idx = output['position'].squeeze(0).argmax().item()
-                    aa_idx = output['amino_acid'].squeeze(0).argmax().item()
+                    edit_type_probs = output['edit_type'].squeeze(0)
+                    position_probs = output['position'].squeeze(0)
+                    aa_probs = output['amino_acid'].squeeze(0)
                 else:
-                    edit_type_idx = output['edit_type'].argmax().item()
-                    position_idx = output['position'].argmax().item()
-                    aa_idx = output['amino_acid'].argmax().item()
+                    edit_type_probs = output['edit_type'][0]
+                    position_probs = output['position'][0]
+                    aa_probs = output['amino_acid'][0]
+                
+                # Get edit type
+                edit_type_idx = edit_type_probs.argmax().item()
+                edit_type = ['substitution', 'insertion', 'deletion', 'stop'][edit_type_idx]
+                
+                # Handle stop action
+                if edit_type == 'stop':
+                    return {
+                        'type': 'stop',
+                        'position': 0,
+                        'amino_acid': None,
+                        'log_prob': torch.tensor(0.0, device=device)
+                    }
+                
+                # 🚀 FIXED: Constrain position selection to valid range
+                if edit_type == 'insertion':
+                    valid_positions = sequence_length + 1  # Can insert at end
+                else:
+                    valid_positions = sequence_length  # Must be within sequence
+                
+                # Only consider valid positions for argmax
+                valid_position_probs = position_probs[:valid_positions]
+                position_idx = valid_position_probs.argmax().item()
+                
+                # Get amino acid
+                aa_idx = aa_probs.argmax().item()
+                amino_acid = list('ACDEFGHIKLMNPQRSTVWY')[aa_idx] if edit_type in ['substitution', 'insertion'] else None
 
                 action = {
-                    'type': ['substitution', 'insertion', 'deletion', 'stop'][edit_type_idx],
+                    'type': edit_type,
                     'position': position_idx,
-                    'amino_acid': list('ACDEFGHIKLMNPQRSTVWY')[aa_idx] if edit_type_idx < 3 else None,
+                    'amino_acid': amino_acid,
                     'log_prob': torch.tensor(0.0, device=device)
                 }
+
             else:
-                # Sample from distributions
+                # Sample from distributions - this should already work correctly
                 action_space = SequenceActionSpace()
-                if sequence_length is None:
-                    sequence_length = self.default_seq_length
                 
                 # Prepare output for action_space (expects no batch dim)
                 if squeeze_output:
                     sample_output = {k: v.squeeze(0) if isinstance(v, torch.Tensor) else v 
-                                   for k, v in output.items()}
+                                for k, v in output.items()}
                 else:
                     sample_output = {k: v[0] if isinstance(v, torch.Tensor) else v 
-                                   for k, v in output.items()}
+                                for k, v in output.items()}
                 
                 action = action_space.sample_action(sample_output, sequence_length)
 
