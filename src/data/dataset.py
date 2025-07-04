@@ -18,8 +18,17 @@ class SpiderSilkDataset:
         self.toughness_values = self.df['toughness'].tolist()
         
         self._create_difficulty_stratification()
-        self._stratified_train_test_split(random_state)
         
+        # Handle small datasets (Phase 1 testing) - CHECK BEFORE SPLIT
+        if len(self.sequences) < 10:
+            print(f"🧪 Small dataset ({len(self.sequences)} sequences) - using all for training and testing")
+            self.train_sequences = self.sequences.copy()
+            self.test_sequences = self.sequences.copy()  # Use same sequences for testing
+            self.train_difficulty_levels = self.difficulty_levels.copy()
+            self.test_difficulty_levels = self.difficulty_levels.copy()
+        else:
+            self._stratified_train_test_split(random_state)
+    
     def _create_difficulty_stratification(self):
         """Create difficulty levels based on toughness quantiles"""
         toughness_array = np.array(self.toughness_values)
