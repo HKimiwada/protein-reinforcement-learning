@@ -11819,3 +11819,5 @@ Failure Breakdown:
 2025-07-06 16:58:17,551 - __main__ - DEBUG -   Step 13: insertion at pos 11 → reward 0.067
 2025-07-06 16:58:21,186 - __main__ - INFO - ✅ Successful insertion: pos=148, improvement=0.0000, reward=0.060
 2025-07-06 16:58:21,302 - __main__ - DEBUG -   Step 14: insertion at pos 148 → reward 0.060
+2025-07-06 16:58:24,698 - __main__ - INFO - ✅ Successful insertion: pos=11, improvement=0.0000, reward=0.053
+2025-07-06 16:58:24,811 - __main__ - DEBUG -   Step 15: insertion at pos 11 → reward 0.053
