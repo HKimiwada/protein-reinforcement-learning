@@ -320,12 +320,12 @@ class SpiderSilkRewardFunction:
             return False, 0.0
 
     def calculate_reward(self,
-                 old_seq,
-                 new_seq,
-                 edit_history,
-                 original_seq,
-                 episode_number,
-                 target_improvement=0.0005):
+                old_seq,
+                new_seq,
+                edit_history,
+                original_seq,
+                episode_number,
+                target_improvement=0.0005):
         """
         Calculate reward with comprehensive error handling and FIXED anti-exploitation
         """
@@ -363,14 +363,26 @@ class SpiderSilkRewardFunction:
             else:
                 early_stop_penalty = 0.0
 
-            # 🚀 FIXED: Simplified success check without anti-exploitation
-            if total_imp >= target_improvement:
-                logger.info(f"🎉 SUCCESS! Total improvement: {total_imp:.4f} in {edit_count} edits")
+            # 🚀 FIXED: Use ACTUAL improvement only, no shortcuts
+            try:
+                current_tough, _ = self.predict_toughness(new_seq)
+                original_tough, _ = self.predict_toughness(original_seq)
+                actual_improvement = current_tough - original_tough
+                actual_improvement = self._validate_number(actual_improvement, "actual_improvement", 0.0)
+            except Exception as e:
+                logger.warning(f"Error calculating actual improvement: {e}")
+                actual_improvement = 0.0
+
+            # Success check based on ACTUAL improvement only
+            if actual_improvement >= target_improvement:
+                logger.info(f"🎉 REAL SUCCESS! Actual improvement: {actual_improvement:.4f} in {edit_count} edits")
+                # Give good reward but not game-breaking
+                success_bonus = min(2.0, actual_improvement * 1000)  # Scale improvement
                 return {
-                    'total': 5.0,
+                    'total': 3.0 + success_bonus,  # Max ~5.0 but earned legitimately
                     'done': True,
                     'components': {
-                        'toughness': 5.0,
+                        'toughness': 3.0 + success_bonus,
                         'realism': 0.0,
                         'exploration': 0.0,
                         'efficiency': 0.0
@@ -403,7 +415,7 @@ class SpiderSilkRewardFunction:
                 r_explore = 0.0
 
             try:
-                r_eff = self.efficiency_reward(edit_count, total_imp, target_improvement)
+                r_eff = self.efficiency_reward(edit_count, actual_improvement, target_improvement)
                 r_eff = self._validate_number(r_eff, "efficiency_reward", -0.01)
             except Exception as e:
                 logger.warning(f"Error in efficiency reward: {e}")
@@ -425,12 +437,12 @@ class SpiderSilkRewardFunction:
             total = self._validate_number(total, "total_reward", -0.1)
             
             # Clip to safe range
-            total = float(np.clip(total, -5.0, 5.0))
+            total = float(np.clip(total, -5.0, 3.0))  # Reduced max to prevent exploitation
 
             # Debug logging every 50 episodes instead of 100
             if episode_number % 50 == 0:
-                logger.info(f"Episode {episode_number}: total_imp={total_imp:.4f}, "
-                        f"actual_imp={actual_improvement:.4f}, edit_count={edit_count}, reward={total:.3f}")
+                logger.info(f"Episode {episode_number}: actual_imp={actual_improvement:.4f}, "
+                        f"edit_count={edit_count}, reward={total:.3f}")
 
             return {
                 'total': total,
@@ -442,7 +454,8 @@ class SpiderSilkRewardFunction:
                     'efficiency': r_eff,
                     'early_stop_penalty': early_stop_penalty
                 },
-                'weights': weights
+                'weights': weights,
+                'actual_improvement': actual_improvement
             }
 
         except Exception as e:

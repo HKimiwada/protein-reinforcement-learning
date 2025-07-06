@@ -27,10 +27,10 @@ def test_rl_learning():
     avg_before = sum(r['improvement'] for r in before_results) / len(before_results)
     print(f"Average improvement before training: {avg_before:.4f}")
     
-    print("\n🚀 Training for 100 episodes...")
+    print("\n🚀 Training for 500 episodes...")
     
-    # Train for 100 episodes
-    for episode in range(100):
+    # Train for 500 episodes
+    for episode in range(500):
         # Get random sequence
         seq = dataset.sequences[episode % len(dataset.sequences)]
         

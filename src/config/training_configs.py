@@ -6,7 +6,7 @@ import time
 @dataclass
 class TrainingConfig:
     # Dataset
-    dataset_path: str = 'src/data/raw/Testing_Sequences.csv'
+    dataset_path: str = 'src/data/raw/V5_MaSp.csv'
     test_size: float = 0.2
     n_difficulty_levels: int = 5
     
@@ -42,10 +42,10 @@ def get_config(name: str = 'default') -> TrainingConfig:
     configs = {
         'default': TrainingConfig(),
         'quick_test': TrainingConfig(
-            n_episodes=2000,
+            n_episodes=500,
             max_steps=20,
             learning_rate=3e-4,
-            entropy_coeff=0.1,
+            entropy_coeff=0.3,
             world_size=2,
             log_interval=10,
             test_interval=20,
@@ -56,7 +56,7 @@ def get_config(name: str = 'default') -> TrainingConfig:
             max_steps=20,             # Limited steps  
             learning_rate=3e-4,       # Conservative
             curriculum_strategy='all', # No curriculum needed
-            entropy_coeff=0.1,
+            entropy_coeff=0.3,
             world_size=1,             # Single GPU
             log_interval=10,
             test_interval=20,
