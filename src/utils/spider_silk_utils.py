@@ -102,8 +102,9 @@ class SpiderSilkUtils:
         if not (0.8 <= length_ratio <= 1.2):
             return False, f"Length ratio out of bounds: {length_ratio:.3f}"
 
+        """
         # Basic motif check
         if 'GPG' not in new_sequence or 'AAA' not in new_sequence:
             return False, "Essential motifs missing"
-
+        """
         return True, "Valid"

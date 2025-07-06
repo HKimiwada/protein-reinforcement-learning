@@ -1,4 +1,3 @@
-# src/models/stable_reward_function_v2.py
 import math
 import torch
 import numpy as np
@@ -13,31 +12,40 @@ logger = logging.getLogger(__name__)
 
 class StableSpiderSilkRewardFunctionV2(SpiderSilkRewardFunction):
     """
-    Improved reward function with better consistency and reduced variance
-    Inherits all the base functionality but overrides calculate_reward
+    Improved reward function with better consistency, reduced variance, and no motif requirements
+    Focuses on toughness improvement while allowing longer episodes for better learning
     """
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        # Additional stability parameters
-        self.reward_smoothing = 0.9  # For moving averages
+        # Stability parameters
+        self.reward_smoothing = 0.9
         self.recent_rewards = []
         self.reward_history_size = 20
+        
+        # Episode management parameters
+        self.min_episode_length = 3  # Minimum steps before allowing termination
+        self.max_cumulative_improvement = 0.02  # Higher threshold for early termination
+        self.target_improvement_per_episode = 0.005  # More ambitious target
 
     def calculate_reward(self,
-                 old_seq,
-                 new_seq,
-                 edit_history,
-                 original_seq,
-                 episode_number,
-                 target_improvement=0.0005):
+                        old_seq,
+                        new_seq,
+                        edit_history,
+                        original_seq,
+                        episode_number,
+                        target_improvement=None):
         """
-        Stable reward calculation with better consistency and reduced variance
+        Stable reward calculation with better episode management and no motif requirements
         """
         
         try:
-            # Get actual toughness improvement (most important signal)
+            # Use instance target if not provided
+            if target_improvement is None:
+                target_improvement = self.target_improvement_per_episode
+            
+            # Get actual toughness improvement (primary signal)
             old_tough, _ = self.predict_toughness(old_seq)
             new_tough, _ = self.predict_toughness(new_seq)
             actual_improvement = new_tough - old_tough
@@ -47,89 +55,140 @@ class StableSpiderSilkRewardFunctionV2(SpiderSilkRewardFunction):
             
             edit_count = len(edit_history) if edit_history else 0
             
-            # SIMPLIFIED REWARD STRUCTURE (much less variance)
+            # Calculate cumulative improvement from original sequence
+            if original_seq and original_seq != new_seq:
+                orig_tough, _ = self.predict_toughness(original_seq)
+                cumulative_improvement = new_tough - orig_tough
+            else:
+                cumulative_improvement = actual_improvement
             
-            # 1. Primary reward: Actual toughness improvement (70% of reward)
-            if actual_improvement > 0.002:  # Significant improvement
-                toughness_reward = min(2.5, actual_improvement * 400)  # Scale and cap
-            elif actual_improvement > 0.0005:  # Moderate improvement  
-                toughness_reward = min(1.5, actual_improvement * 300)
-            elif actual_improvement > 0:     # Small improvement
+            cumulative_improvement = self._validate_number(cumulative_improvement, "cumulative_improvement", 0.0)
+            
+            # REWARD CALCULATION (simplified and more stable)
+            
+            # 1. Primary reward: Actual step improvement (60% of total reward)
+            if actual_improvement > 0.003:  # Excellent improvement
+                toughness_reward = min(2.0, actual_improvement * 500)
+            elif actual_improvement > 0.001:  # Good improvement
+                toughness_reward = min(1.2, actual_improvement * 400)
+            elif actual_improvement > 0.0002:  # Small improvement
+                toughness_reward = actual_improvement * 300
+            elif actual_improvement > 0:  # Tiny improvement
                 toughness_reward = actual_improvement * 200
-            else:                           # No improvement or negative
-                toughness_reward = max(-1.0, actual_improvement * 50)  # Smaller penalty
+            else:  # No improvement or degradation
+                toughness_reward = max(-0.8, actual_improvement * 100)  # Gentler penalty
             
-            # 2. Success bonus (if target reached)
-            if actual_improvement >= target_improvement:
-                success_bonus = 1.5  # Moderate bonus, not game-breaking
-                done = True
-                logger.info(f"🎉 SUCCESS! Actual improvement: {actual_improvement:.4f}")
-            else:
-                success_bonus = 0.0
-                done = False
+            # 2. Cumulative progress reward (20% of total reward)
+            if cumulative_improvement > 0.01:  # Substantial total progress
+                cumulative_reward = min(1.0, cumulative_improvement * 50)
+            elif cumulative_improvement > 0.005:  # Good total progress
+                cumulative_reward = min(0.6, cumulative_improvement * 80)
+            elif cumulative_improvement > 0.001:  # Some progress
+                cumulative_reward = cumulative_improvement * 100
+            else:  # No cumulative progress
+                cumulative_reward = max(-0.3, cumulative_improvement * 30)
             
-            # 3. Small consistency bonuses (20% of reward)
-            
-            # Edit efficiency (encourage fewer, better edits)
+            # 3. Exploration and efficiency (15% of total reward)
             if edit_count == 0:
-                efficiency_reward = -0.2  # Small penalty for no exploration
-            elif edit_count <= 3:
-                efficiency_reward = 0.1   # Bonus for very concise editing
-            elif edit_count <= 8:
-                efficiency_reward = 0.05  # Small bonus for reasonable editing
+                exploration_reward = -0.3  # Penalty for no action
+            elif edit_count <= 5:
+                exploration_reward = 0.1  # Bonus for efficient exploration
+            elif edit_count <= 10:
+                exploration_reward = 0.05  # Small bonus
             else:
-                efficiency_reward = max(-0.3, -0.02 * (edit_count - 8))  # Linear penalty
+                exploration_reward = max(-0.2, -0.01 * (edit_count - 10))  # Gentle penalty for excessive edits
             
-            # 4. Realism check (prevent completely unrealistic sequences) (10% of reward)
+            # 4. Sequence quality check (5% of total reward)
+            quality_reward = 0.0
             try:
-                perplexity = self.calculate_perplexity(new_seq)
-                if perplexity > 15.0:  # Very high perplexity
-                    realism_penalty = -0.4
-                elif perplexity > 8.0:  # High perplexity
-                    realism_penalty = -0.2
-                elif perplexity > 5.0:  # Moderate perplexity
-                    realism_penalty = -0.1
+                # Basic length check (no motif requirements)
+                if len(new_seq) < 20:
+                    quality_reward = -0.3  # Too short
+                elif len(new_seq) > 2000:
+                    quality_reward = -0.2  # Too long
+                
+                # Basic amino acid composition check
+                if self._has_reasonable_composition(new_seq):
+                    quality_reward += 0.1
                 else:
-                    realism_penalty = 0.0
-            except:
-                realism_penalty = 0.0
+                    quality_reward -= 0.1
+                
+                # Perplexity check (optional)
+                perplexity = self.calculate_perplexity(new_seq)
+                if perplexity > 20.0:
+                    quality_reward -= 0.2
+                elif perplexity > 10.0:
+                    quality_reward -= 0.1
+                    
+            except Exception as e:
+                logger.debug(f"Quality check failed: {e}")
+                perplexity = 0.0
             
-            # 5. Exploration bonus (encourage trying different approaches)
-            exploration_bonus = 0.0
-            if edit_count > 0:
-                # Small bonus for making edits
-                exploration_bonus = min(0.1, edit_count * 0.02)
+            # TERMINATION LOGIC (key change - much less aggressive)
+            done = False
+            termination_bonus = 0.0
             
-            # Final reward calculation (much more stable)
-            total_reward = (toughness_reward + success_bonus + 
-                          efficiency_reward + realism_penalty + exploration_bonus)
+            # Only consider termination after minimum episode length
+            if edit_count >= self.min_episode_length:
+                
+                # Exceptional performance - allow early termination
+                if (cumulative_improvement > self.max_cumulative_improvement and 
+                    actual_improvement > 0.002):
+                    done = True
+                    termination_bonus = 2.0  # Big bonus for exceptional performance
+                    logger.info(f"🎉 EXCEPTIONAL SUCCESS! Cumulative: {cumulative_improvement:.4f}, Step: {actual_improvement:.4f}")
+                
+                # Good performance but continue episode to learn more
+                elif cumulative_improvement > target_improvement:
+                    # Don't terminate, but give progress bonus
+                    termination_bonus = 0.5
+                    logger.debug(f"Good progress: {cumulative_improvement:.4f}, continuing episode...")
+                
+                # Long episode with some progress - natural termination
+                elif edit_count >= 15 and cumulative_improvement > 0.001:
+                    done = True
+                    termination_bonus = 0.3
+                    logger.debug(f"Natural termination after {edit_count} edits")
+                
+                # Very long episode - force termination
+                elif edit_count >= 25:
+                    done = True
+                    termination_bonus = 0.0
+                    logger.debug(f"Forced termination after {edit_count} edits")
+            
+            # Calculate final reward
+            total_reward = (toughness_reward + cumulative_reward + 
+                          exploration_reward + quality_reward + termination_bonus)
             
             # Apply smoothing to reduce variance
             total_reward = self._smooth_reward(total_reward)
             
-            # Safety clipping (tighter bounds for consistency)
-            total_reward = float(np.clip(total_reward, -1.5, 4.0))
+            # Safety clipping
+            total_reward = float(np.clip(total_reward, -2.0, 5.0))
             
             # Validation
             if np.isnan(total_reward) or np.isinf(total_reward):
                 total_reward = -0.1
+                logger.warning(f"Invalid reward detected, using fallback")
             
-            # Debug logging every 50 episodes
-            if episode_number % 50 == 0:
-                logger.info(f"Episode {episode_number}: improvement={actual_improvement:.4f}, "
-                          f"reward={total_reward:.3f}, edits={edit_count}")
+            # Detailed logging for debugging
+            if episode_number % 50 == 0 or done:
+                logger.info(f"Episode {episode_number}: step_improvement={actual_improvement:.4f}, "
+                          f"cumulative={cumulative_improvement:.4f}, reward={total_reward:.3f}, "
+                          f"edits={edit_count}, done={done}")
             
             return {
                 'total': total_reward,
                 'done': done,
                 'components': {
                     'toughness': toughness_reward,
-                    'success_bonus': success_bonus,
-                    'efficiency': efficiency_reward,
-                    'realism': realism_penalty,
-                    'exploration': exploration_bonus
+                    'cumulative': cumulative_reward,
+                    'exploration': exploration_reward,
+                    'quality': quality_reward,
+                    'termination_bonus': termination_bonus
                 },
                 'actual_improvement': actual_improvement,
+                'cumulative_improvement': cumulative_improvement,
                 'edit_count': edit_count,
                 'perplexity': perplexity if 'perplexity' in locals() else 0.0
             }
@@ -140,8 +199,40 @@ class StableSpiderSilkRewardFunctionV2(SpiderSilkRewardFunction):
                 'total': -0.1,
                 'done': False,
                 'components': {},
-                'actual_improvement': 0.0
+                'actual_improvement': 0.0,
+                'cumulative_improvement': 0.0
             }
+    
+    def _has_reasonable_composition(self, sequence: str) -> bool:
+        """
+        Check if sequence has reasonable amino acid composition (no motif requirements)
+        More lenient than motif checking
+        """
+        if len(sequence) < 10:
+            return False
+        
+        sequence_upper = sequence.upper()
+        length = len(sequence_upper)
+        
+        # Check for reasonable diversity (not too repetitive)
+        unique_aa = len(set(sequence_upper))
+        if unique_aa < 5:  # At least 5 different amino acids
+            return False
+        
+        # Check for reasonable composition of key amino acids (very lenient)
+        alanine_ratio = sequence_upper.count('A') / length
+        glycine_ratio = sequence_upper.count('G') / length
+        
+        # Very lenient bounds - just avoid extreme cases
+        if alanine_ratio > 0.7 or glycine_ratio > 0.7:  # Not more than 70% of any single AA
+            return False
+        
+        # Check for presence of some structure-forming amino acids
+        structure_aa = sum(sequence_upper.count(aa) for aa in 'AGPYFWH')
+        if structure_aa / length < 0.3:  # At least 30% structure-forming amino acids
+            return False
+        
+        return True
     
     def _smooth_reward(self, reward: float) -> float:
         """Apply smoothing to reduce reward variance"""
@@ -151,11 +242,18 @@ class StableSpiderSilkRewardFunctionV2(SpiderSilkRewardFunction):
         if len(self.recent_rewards) > self.reward_history_size:
             self.recent_rewards.pop(0)
         
-        # If we have enough history, apply smoothing
+        # If we have enough history, apply light smoothing
         if len(self.recent_rewards) >= 5:
-            # Weighted average: 70% current reward, 30% recent average
+            # Weighted average: 80% current reward, 20% recent average
             recent_avg = np.mean(self.recent_rewards[:-1])  # Exclude current reward
-            smoothed = self.reward_smoothing * reward + (1 - self.reward_smoothing) * recent_avg
+            smoothed = 0.8 * reward + 0.2 * recent_avg
             return smoothed
         else:
             return reward
+    
+    def _validate_number(self, value: float, name: str, default: float = 0.0) -> float:
+        """Validate that a number is finite and reasonable"""
+        if np.isnan(value) or np.isinf(value):
+            logger.warning(f"Invalid {name}: {value}, using default {default}")
+            return default
+        return float(value)

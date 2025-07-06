@@ -6,10 +6,9 @@ This script integrates all fixes (position bounds + tensor stacking) and provide
 detailed logging to track RL performance, failures, and improvements.
 
 Usage:
-    python src/experiments/run_stable_v2_fixed.py --config stable --episodes 2000
-    python src/experiments/run_stable_v2_fixed.py --config stable_test --episodes 100 --verbose
+    python src/experiments/run_stable_v3.py --config stable --episodes 2000
+    python src/experiments/run_stable_v3.py --config stable_test --episodes 100 --verbose
 """
-
 import os
 import sys
 import argparse
@@ -804,8 +803,12 @@ class ComprehensiveFixedTrainer:
                     for i, (state, action) in enumerate(zip(states, actions)):
                         policy_output = self.policy(state.unsqueeze(0))
                         
-                        # Get action probabilities
-                        action_probs = self.policy.get_action_probabilities(state.unsqueeze(0))
+                        # Get action probabilities directly from policy output
+                        action_probs = {
+                            'edit_type': policy_output['edit_type'],
+                            'position': policy_output['position'], 
+                            'amino_acid': policy_output['amino_acid']
+                        }
                         
                         # Calculate log probability for the taken action
                         if action['type'] == 'stop':
