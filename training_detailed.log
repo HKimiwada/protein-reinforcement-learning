@@ -1,0 +1,129 @@
+2025-07-06 11:01:49,663 - __main__ - INFO - Using device: cuda
+2025-07-06 11:01:49,663 - __main__ - INFO - 🚀 Starting experiment: stable_test_20250706_110149
+2025-07-06 11:01:49,663 - __main__ - INFO - Configuration: stable_test
+2025-07-06 11:01:49,663 - __main__ - INFO - Episodes: 100
+2025-07-06 11:01:49,664 - __main__ - INFO - Verbose logging: True
+2025-07-06 11:01:49,664 - __main__ - INFO - Loaded configuration: stable_test
+2025-07-06 11:01:49,664 - __main__ - INFO - Loading models and data...
+2025-07-06 11:01:49,664 - __main__ - ERROR - Failed to load models and data: fix_both_warnings() missing 2 required positional arguments: 'tokenizer' and 'model'
+2025-07-06 11:01:49,664 - __main__ - ERROR - Experiment failed: fix_both_warnings() missing 2 required positional arguments: 'tokenizer' and 'model'
+2025-07-06 11:01:49,664 - __main__ - ERROR - ❌ Experiment failed: fix_both_warnings() missing 2 required positional arguments: 'tokenizer' and 'model'
+2025-07-06 11:06:20,087 - __main__ - INFO - Using device: cuda
+2025-07-06 11:06:20,088 - __main__ - INFO - 🚀 Starting experiment: stable_test_20250706_110620
+2025-07-06 11:06:20,088 - __main__ - INFO - Configuration: stable_test
+2025-07-06 11:06:20,088 - __main__ - INFO - Episodes: 100
+2025-07-06 11:06:20,088 - __main__ - INFO - Verbose logging: True
+2025-07-06 11:06:20,089 - __main__ - INFO - Loaded configuration: stable_test
+2025-07-06 11:06:20,089 - __main__ - INFO - Learning rate: 8e-05
+2025-07-06 11:06:20,089 - __main__ - INFO - Max steps: 25
+2025-07-06 11:06:20,089 - __main__ - INFO - Loading models and data...
+2025-07-06 11:06:20,104 - __main__ - INFO - Loaded 584 sequences
+2025-07-06 11:06:20,104 - __main__ - INFO - Loading ESM-C model...
+2025-07-06 11:06:21,054 - __main__ - INFO - ESM-C model loaded successfully
+2025-07-06 11:06:21,055 - __main__ - INFO - Loading SilkomeGPT model...
+2025-07-06 11:06:22,014 - __main__ - INFO - SilkomeGPT model loaded successfully
+2025-07-06 11:06:24,961 - __main__ - INFO - Successfully loaded all models and data
+2025-07-06 11:06:24,987 - __main__ - INFO - Training on device: cuda
+2025-07-06 11:06:24,988 - __main__ - INFO - Policy parameters: 14200065
+2025-07-06 11:06:25,109 - __main__ - DEBUG - Episode 1: Starting with sequence length 317
+2025-07-06 11:06:28,004 - __main__ - INFO - ✅ Successful insertion: pos=110, improvement=0.0000, reward=0.120
+2025-07-06 11:06:28,115 - __main__ - DEBUG -   Step 0: insertion at pos 110 → reward 0.120
+2025-07-06 11:06:30,892 - __main__ - INFO - ✅ Successful substitution: pos=233, improvement=0.0000, reward=0.140
+2025-07-06 11:06:31,004 - __main__ - DEBUG -   Step 1: substitution at pos 233 → reward 0.140
+2025-07-06 11:06:33,722 - src.models.stable_reward_function_v2 - INFO - 🎉 SUCCESS! Actual improvement: 0.0589
+2025-07-06 11:06:33,780 - __main__ - INFO - ✅ Successful substitution: pos=171, improvement=0.0589, reward=4.000
+2025-07-06 11:06:34,284 - __main__ - DEBUG -   Step 2: substitution at pos 171 → reward 4.000
+2025-07-06 11:06:34,284 - __main__ - DEBUG - Episode 1: Completed with 3 steps, reward 4.260
+2025-07-06 11:06:34,297 - __main__ - ERROR - Policy evaluation error in episode 1: 'ImprovedSequenceEditPolicyV2' object has no attribute 'get_action_probabilities'
+2025-07-06 11:06:35,613 - __main__ - INFO - 🎉 New best reward: 4.260 (Episode 1)
+2025-07-06 11:06:35,613 - __main__ - INFO - 🎉 New best improvement: 0.0589 (Episode 1)
+2025-07-06 11:06:35,613 - __main__ - INFO - 🎉 Excellent episode 1! Reward: 4.260
+2025-07-06 11:06:35,742 - __main__ - DEBUG - Episode 2: Starting with sequence length 495
+2025-07-06 11:06:38,588 - __main__ - INFO - ✅ Successful substitution: pos=405, improvement=-0.0081, reward=-0.284
+2025-07-06 11:06:38,717 - __main__ - DEBUG -   Step 0: substitution at pos 405 → reward -0.284
+2025-07-06 11:06:41,552 - __main__ - INFO - ✅ Successful substitution: pos=234, improvement=0.0000, reward=0.229
+2025-07-06 11:06:41,679 - __main__ - DEBUG -   Step 1: substitution at pos 234 → reward 0.229
+2025-07-06 11:06:44,519 - __main__ - INFO - ✅ Successful deletion: pos=447, improvement=0.0000, reward=0.230
+2025-07-06 11:06:44,647 - __main__ - DEBUG -   Step 2: deletion at pos 447 → reward 0.230
+2025-07-06 11:06:47,490 - __main__ - INFO - ✅ Successful substitution: pos=270, improvement=0.0000, reward=0.191
+2025-07-06 11:06:47,618 - __main__ - DEBUG -   Step 3: substitution at pos 270 → reward 0.191
+2025-07-06 11:06:50,391 - src.models.stable_reward_function_v2 - INFO - 🎉 SUCCESS! Actual improvement: 0.0012
+2025-07-06 11:06:50,456 - __main__ - INFO - ✅ Successful insertion: pos=99, improvement=0.0012, reward=1.862
+2025-07-06 11:06:50,583 - __main__ - DEBUG -   Step 4: insertion at pos 99 → reward 1.862
+2025-07-06 11:06:50,584 - __main__ - DEBUG - Episode 2: Completed with 5 steps, reward 2.228
+2025-07-06 11:06:50,589 - __main__ - ERROR - Policy evaluation error in episode 2: 'ImprovedSequenceEditPolicyV2' object has no attribute 'get_action_probabilities'
+2025-07-06 11:06:51,952 - __main__ - INFO - 🎉 Excellent episode 2! Reward: 2.228
+2025-07-06 11:06:52,069 - __main__ - DEBUG - Episode 3: Starting with sequence length 221
+2025-07-06 11:06:52,132 - __main__ - WARNING - ❌ Invalid insertion: Essential motifs missing
+2025-07-06 11:06:52,246 - __main__ - DEBUG -   Step 0: insertion at pos 19 → reward -1.000
+2025-07-06 11:06:54,973 - __main__ - INFO - ✅ Successful substitution: pos=56, improvement=0.0000, reward=0.190
+2025-07-06 11:06:55,090 - __main__ - DEBUG -   Step 1: substitution at pos 56 → reward 0.190
+2025-07-06 11:06:57,810 - __main__ - INFO - ✅ Successful deletion: pos=99, improvement=0.0000, reward=0.200
+2025-07-06 11:06:57,926 - __main__ - DEBUG -   Step 2: deletion at pos 99 → reward 0.200
+2025-07-06 11:07:00,643 - __main__ - INFO - ✅ Successful deletion: pos=37, improvement=0.0000, reward=0.212
+2025-07-06 11:07:00,758 - __main__ - DEBUG -   Step 3: deletion at pos 37 → reward 0.212
+2025-07-06 11:07:03,491 - __main__ - INFO - ✅ Successful substitution: pos=37, improvement=0.0000, reward=0.180
+2025-07-06 11:07:03,607 - __main__ - DEBUG -   Step 4: substitution at pos 37 → reward 0.180
+2025-07-06 11:07:06,333 - __main__ - INFO - ✅ Successful substitution: pos=136, improvement=0.0000, reward=0.194
+2025-07-06 11:07:06,449 - __main__ - DEBUG -   Step 5: substitution at pos 136 → reward 0.194
+2025-07-06 11:07:09,189 - __main__ - INFO - ✅ Successful deletion: pos=37, improvement=0.0000, reward=0.191
+2025-07-06 11:07:09,308 - __main__ - DEBUG -   Step 6: deletion at pos 37 → reward 0.191
+2025-07-06 11:07:12,034 - __main__ - INFO - ✅ Successful substitution: pos=99, improvement=0.0000, reward=0.188
+2025-07-06 11:07:12,149 - __main__ - DEBUG -   Step 7: substitution at pos 99 → reward 0.188
+2025-07-06 11:07:14,879 - __main__ - INFO - ✅ Successful insertion: pos=171, improvement=0.0000, reward=0.185
+2025-07-06 11:07:14,994 - __main__ - DEBUG -   Step 8: insertion at pos 171 → reward 0.185
+2025-07-06 11:07:17,686 - src.models.stable_reward_function_v2 - INFO - 🎉 SUCCESS! Actual improvement: 0.0558
+2025-07-06 11:07:17,744 - __main__ - INFO - ✅ Successful insertion: pos=171, improvement=0.0558, reward=3.720
+2025-07-06 11:07:17,860 - __main__ - DEBUG -   Step 9: insertion at pos 171 → reward 3.720
+2025-07-06 11:07:17,860 - __main__ - DEBUG - Episode 3: Completed with 10 steps, reward 4.262
+2025-07-06 11:07:17,866 - __main__ - ERROR - Policy evaluation error in episode 3: 'ImprovedSequenceEditPolicyV2' object has no attribute 'get_action_probabilities'
+2025-07-06 11:07:19,177 - __main__ - INFO - 🎉 New best reward: 4.262 (Episode 3)
+2025-07-06 11:07:19,177 - __main__ - INFO - 🎉 Excellent episode 3! Reward: 4.262
+2025-07-06 11:07:19,337 - __main__ - DEBUG - Episode 4: Starting with sequence length 600
+2025-07-06 11:07:19,428 - __main__ - WARNING - ❌ Invalid insertion: Essential motifs missing
+2025-07-06 11:07:19,592 - __main__ - DEBUG -   Step 0: insertion at pos 206 → reward -1.000
+2025-07-06 11:07:19,681 - __main__ - WARNING - ❌ Invalid substitution: Essential motifs missing
+2025-07-06 11:07:19,843 - __main__ - DEBUG -   Step 1: substitution at pos 99 → reward -1.000
+2025-07-06 11:07:22,738 - __main__ - INFO - ✅ Successful substitution: pos=305, improvement=0.0000, reward=0.177
+2025-07-06 11:07:22,901 - __main__ - DEBUG -   Step 2: substitution at pos 305 → reward 0.177
+2025-07-06 11:07:25,794 - __main__ - INFO - ✅ Successful substitution: pos=461, improvement=0.0000, reward=0.192
+2025-07-06 11:07:25,958 - __main__ - DEBUG -   Step 3: substitution at pos 461 → reward 0.192
+2025-07-06 11:07:25,966 - __main__ - DEBUG - ⚪ No change from substitution at position 37
+2025-07-06 11:07:26,127 - __main__ - DEBUG -   Step 4: substitution at pos 37 → reward -0.300
+2025-07-06 11:07:29,033 - __main__ - INFO - ✅ Successful substitution: pos=318, improvement=0.0000, reward=0.207
+2025-07-06 11:07:29,196 - __main__ - DEBUG -   Step 5: substitution at pos 318 → reward 0.207
+2025-07-06 11:07:32,109 - __main__ - INFO - ✅ Successful substitution: pos=49, improvement=0.0000, reward=0.181
+2025-07-06 11:07:32,273 - __main__ - DEBUG -   Step 6: substitution at pos 49 → reward 0.181
+2025-07-06 11:07:35,174 - __main__ - INFO - ✅ Successful substitution: pos=574, improvement=0.0000, reward=0.199
+2025-07-06 11:07:35,338 - __main__ - DEBUG -   Step 7: substitution at pos 574 → reward 0.199
+2025-07-06 11:07:38,240 - __main__ - INFO - ✅ Successful substitution: pos=528, improvement=0.0000, reward=0.177
+2025-07-06 11:07:38,404 - __main__ - DEBUG -   Step 8: substitution at pos 528 → reward 0.177
+2025-07-06 11:07:41,290 - __main__ - INFO - ✅ Successful substitution: pos=324, improvement=0.0000, reward=0.180
+2025-07-06 11:07:41,454 - __main__ - DEBUG -   Step 9: substitution at pos 324 → reward 0.180
+2025-07-06 11:07:44,354 - __main__ - INFO - ✅ Successful substitution: pos=471, improvement=0.0000, reward=0.180
+2025-07-06 11:07:44,517 - __main__ - DEBUG -   Step 10: substitution at pos 471 → reward 0.180
+2025-07-06 11:07:47,411 - __main__ - INFO - ✅ Successful substitution: pos=253, improvement=0.0000, reward=0.117
+2025-07-06 11:07:47,576 - __main__ - DEBUG -   Step 11: substitution at pos 253 → reward 0.117
+2025-07-06 11:07:50,468 - __main__ - INFO - ✅ Successful substitution: pos=535, improvement=0.0000, reward=0.099
+2025-07-06 11:07:50,631 - __main__ - DEBUG -   Step 12: substitution at pos 535 → reward 0.099
+2025-07-06 11:07:53,526 - __main__ - INFO - ✅ Successful substitution: pos=171, improvement=-0.0200, reward=-0.830
+2025-07-06 11:07:53,690 - __main__ - DEBUG -   Step 13: substitution at pos 171 → reward -0.830
+2025-07-06 11:07:56,506 - src.models.stable_reward_function_v2 - INFO - 🎉 SUCCESS! Actual improvement: 0.0200
+2025-07-06 11:07:56,586 - __main__ - INFO - ✅ Successful substitution: pos=334, improvement=0.0200, reward=3.647
+2025-07-06 11:07:56,750 - __main__ - DEBUG -   Step 14: substitution at pos 334 → reward 3.647
+2025-07-06 11:07:56,750 - __main__ - DEBUG - Episode 4: Completed with 15 steps, reward 2.226
+2025-07-06 11:07:56,757 - __main__ - ERROR - Policy evaluation error in episode 4: 'ImprovedSequenceEditPolicyV2' object has no attribute 'get_action_probabilities'
+2025-07-06 11:07:58,117 - __main__ - INFO - 🎉 Excellent episode 4! Reward: 2.226
+2025-07-06 11:07:58,232 - __main__ - DEBUG - Episode 5: Starting with sequence length 302
+2025-07-06 11:08:01,019 - __main__ - INFO - ✅ Successful substitution: pos=131, improvement=0.0000, reward=0.157
+2025-07-06 11:08:01,132 - __main__ - DEBUG -   Step 0: substitution at pos 131 → reward 0.157
+2025-07-06 11:08:03,949 - __main__ - INFO - ✅ Successful substitution: pos=149, improvement=0.0000, reward=0.175
+2025-07-06 11:08:04,065 - __main__ - DEBUG -   Step 1: substitution at pos 149 → reward 0.175
+2025-07-06 11:08:06,868 - __main__ - INFO - ✅ Successful substitution: pos=66, improvement=0.0000, reward=0.193
+2025-07-06 11:08:06,985 - __main__ - DEBUG -   Step 2: substitution at pos 66 → reward 0.193
+2025-07-06 11:08:09,781 - __main__ - INFO - ✅ Successful substitution: pos=117, improvement=0.0000, reward=0.166
+2025-07-06 11:08:09,894 - __main__ - DEBUG -   Step 3: substitution at pos 117 → reward 0.166
+2025-07-06 11:08:12,684 - __main__ - INFO - ✅ Successful deletion: pos=70, improvement=0.0000, reward=0.184
+2025-07-06 11:08:12,798 - __main__ - DEBUG -   Step 4: deletion at pos 70 → reward 0.184
+2025-07-06 11:08:15,577 - __main__ - INFO - ✅ Successful substitution: pos=123, improvement=0.0000, reward=0.184
+2025-07-06 11:08:15,692 - __main__ - DEBUG -   Step 5: substitution at pos 123 → reward 0.184
