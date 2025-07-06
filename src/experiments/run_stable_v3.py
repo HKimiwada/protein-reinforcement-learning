@@ -7,7 +7,7 @@ detailed logging to track RL performance, failures, and improvements.
 
 Usage:
     python src/experiments/run_stable_v3.py --config stable --episodes 2000
-    python src/experiments/run_stable_v3.py --config stable_test --episodes 100 --verbose
+    python src/experiments/run_stable_v3.py --config stable_test --episodes 600 --verbose
 """
 import os
 import sys
@@ -794,54 +794,74 @@ class ComprehensiveFixedTrainer:
             
             # Get new policy outputs
             try:
-                with torch.no_grad():
-                    # Get new log probs and values for all states
-                    new_log_probs = []
-                    new_values = []
-                    entropies = []
+                # Get new log probs and values for all states - ENABLE GRADIENTS
+                new_log_probs = []
+                new_values = []
+                entropies = []
+                
+                # Set policy to training mode and enable gradients
+                self.policy.train()
+                
+                for i, (state, action) in enumerate(zip(states, actions)):
+                    # DON'T use torch.no_grad() here - we need gradients!
+                    policy_output = self.policy(state.unsqueeze(0))
                     
-                    for i, (state, action) in enumerate(zip(states, actions)):
-                        policy_output = self.policy(state.unsqueeze(0))
-                        
-                        # Get action probabilities directly from policy output
+                    # Get action probabilities - handle both 1D and 2D tensors
+                    if policy_output['edit_type'].dim() == 1:
+                        # Single sequence output (1D tensors)
                         action_probs = {
                             'edit_type': policy_output['edit_type'],
                             'position': policy_output['position'], 
                             'amino_acid': policy_output['amino_acid']
                         }
+                    else:
+                        # Batched output (2D tensors) - take first batch element
+                        action_probs = {
+                            'edit_type': policy_output['edit_type'][0],
+                            'position': policy_output['position'][0], 
+                            'amino_acid': policy_output['amino_acid'][0]
+                        }
+                    
+                    # Calculate log probability for the taken action
+                    if action['type'] == 'stop':
+                        # Stop action
+                        edit_type_idx = 3  # stop is index 3
+                        log_prob = torch.log(action_probs['edit_type'][edit_type_idx] + 1e-8)
+                    else:
+                        # Non-stop action
+                        edit_type_idx = ['substitution', 'insertion', 'deletion'].index(action['type'])
                         
-                        # Calculate log probability for the taken action
-                        if action['type'] == 'stop':
-                            # Stop action
-                            edit_type_idx = 3  # stop is index 3
-                            log_prob = torch.log(action_probs['edit_type'][0, edit_type_idx] + 1e-8)
-                        else:
-                            # Non-stop action
-                            edit_type_idx = ['substitution', 'insertion', 'deletion'].index(action['type'])
-                            
-                            # Edit type log prob
-                            log_prob = torch.log(action_probs['edit_type'][0, edit_type_idx] + 1e-8)
-                            
-                            # Position log prob
-                            position = action['position']
-                            if position < action_probs['position'].shape[1]:
-                                log_prob += torch.log(action_probs['position'][0, position] + 1e-8)
-                            
-                            # Amino acid log prob (if applicable)
-                            if action['type'] in ['substitution', 'insertion'] and action['amino_acid']:
-                                aa_idx = list('ACDEFGHIKLMNPQRSTVWY').index(action['amino_acid'])
-                                if aa_idx < action_probs['amino_acid'].shape[1]:
-                                    log_prob += torch.log(action_probs['amino_acid'][0, aa_idx] + 1e-8)
+                        # Edit type log prob
+                        log_prob = torch.log(action_probs['edit_type'][edit_type_idx] + 1e-8)
                         
-                        # Calculate entropy
-                        edit_type_entropy = -(action_probs['edit_type'] * torch.log(action_probs['edit_type'] + 1e-8)).sum()
-                        pos_entropy = -(action_probs['position'] * torch.log(action_probs['position'] + 1e-8)).sum()
-                        aa_entropy = -(action_probs['amino_acid'] * torch.log(action_probs['amino_acid'] + 1e-8)).sum()
-                        total_entropy = edit_type_entropy + pos_entropy + aa_entropy
+                        # Position log prob - fix the indexing issue
+                        position = action['position']
+                        if position < action_probs['position'].shape[0]:  # Changed from shape[1] to shape[0]
+                            log_prob += torch.log(action_probs['position'][position] + 1e-8)
                         
-                        new_log_probs.append(log_prob.reshape([]))
-                        new_values.append(policy_output['value'].reshape([]))
-                        entropies.append(total_entropy.reshape([]))
+                        # Amino acid log prob (if applicable)
+                        if action['type'] in ['substitution', 'insertion'] and action['amino_acid']:
+                            aa_idx = list('ACDEFGHIKLMNPQRSTVWY').index(action['amino_acid'])
+                            if aa_idx < action_probs['amino_acid'].shape[0]:  # Changed from shape[1] to shape[0]
+                                log_prob += torch.log(action_probs['amino_acid'][aa_idx] + 1e-8)
+                    
+                    # Calculate entropy
+                    edit_type_entropy = -(action_probs['edit_type'] * torch.log(action_probs['edit_type'] + 1e-8)).sum()
+                    pos_entropy = -(action_probs['position'] * torch.log(action_probs['position'] + 1e-8)).sum()
+                    aa_entropy = -(action_probs['amino_acid'] * torch.log(action_probs['amino_acid'] + 1e-8)).sum()
+                    total_entropy = edit_type_entropy + pos_entropy + aa_entropy
+                    
+                    # Extract value - handle both 1D and 2D cases
+                    if policy_output['value'].dim() == 0:
+                        value = policy_output['value']
+                    elif policy_output['value'].dim() == 1:
+                        value = policy_output['value'][0] if policy_output['value'].shape[0] > 0 else policy_output['value']
+                    else:
+                        value = policy_output['value'][0, 0]
+                    
+                    new_log_probs.append(log_prob.reshape([]))
+                    new_values.append(value.reshape([]))
+                    entropies.append(total_entropy.reshape([]))
                 
                 # Stack the computed tensors
                 new_log_probs = torch.stack(new_log_probs)
