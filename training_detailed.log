@@ -11821,3 +11821,19 @@ Failure Breakdown:
 2025-07-06 16:58:21,302 - __main__ - DEBUG -   Step 14: insertion at pos 148 → reward 0.060
 2025-07-06 16:58:24,698 - __main__ - INFO - ✅ Successful insertion: pos=11, improvement=0.0000, reward=0.053
 2025-07-06 16:58:24,811 - __main__ - DEBUG -   Step 15: insertion at pos 11 → reward 0.053
+2025-07-06 16:58:28,209 - __main__ - INFO - ✅ Successful insertion: pos=115, improvement=0.0000, reward=0.045
+2025-07-06 16:58:28,322 - __main__ - DEBUG -   Step 16: insertion at pos 115 → reward 0.045
+2025-07-06 16:58:31,718 - __main__ - INFO - ✅ Successful insertion: pos=282, improvement=0.0000, reward=0.038
+2025-07-06 16:58:31,829 - __main__ - DEBUG -   Step 17: insertion at pos 282 → reward 0.038
+2025-07-06 16:58:35,236 - __main__ - INFO - ✅ Successful insertion: pos=338, improvement=0.0000, reward=0.031
+2025-07-06 16:58:35,349 - __main__ - DEBUG -   Step 18: insertion at pos 338 → reward 0.031
+2025-07-06 16:58:38,744 - __main__ - INFO - ✅ Successful insertion: pos=374, improvement=0.0000, reward=0.023
+2025-07-06 16:58:38,857 - __main__ - DEBUG -   Step 19: insertion at pos 374 → reward 0.023
+2025-07-06 16:58:42,265 - __main__ - INFO - ✅ Successful insertion: pos=54, improvement=0.0000, reward=0.013
+2025-07-06 16:58:42,379 - __main__ - DEBUG -   Step 20: insertion at pos 54 → reward 0.013
+2025-07-06 16:58:45,823 - __main__ - INFO - ✅ Successful insertion: pos=360, improvement=0.0000, reward=0.003
+2025-07-06 16:58:45,935 - __main__ - DEBUG -   Step 21: insertion at pos 360 → reward 0.003
+2025-07-06 16:58:49,372 - __main__ - INFO - ✅ Successful insertion: pos=329, improvement=0.0000, reward=-0.007
+2025-07-06 16:58:49,485 - __main__ - DEBUG -   Step 22: insertion at pos 329 → reward -0.007
+2025-07-06 16:58:52,890 - __main__ - INFO - ✅ Successful insertion: pos=250, improvement=0.0000, reward=-0.018
+2025-07-06 16:58:53,003 - __main__ - DEBUG -   Step 23: insertion at pos 250 → reward -0.018
