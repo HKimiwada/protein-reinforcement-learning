@@ -8,7 +8,7 @@ class StableTrainingConfigV2:
     """Stable training configuration with improved consistency"""
     
     # Dataset
-    dataset_path: str = 'src/data/raw/V5_MaSp.csv'
+    dataset_path: str = 'src/data/raw/V6_MaSp.csv'
     test_size: float = 0.2
     n_difficulty_levels: int = 5
     

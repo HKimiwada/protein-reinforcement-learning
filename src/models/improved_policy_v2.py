@@ -147,12 +147,15 @@ class ImprovedSequenceEditPolicyV2(nn.Module):
         return p / p.sum(dim=-1, keepdim=True)
 
     def get_action(self, state, deterministic=False, sequence_length=None):
-        """Improved action selection with better exploration"""
+        """FIXED action selection with proper bounds checking"""
         device = next(self.parameters()).device
         state = state.to(device)
         
         if sequence_length is None:
             sequence_length = self.default_seq_length
+        
+        # 🚨 CRITICAL: Ensure sequence_length is reasonable
+        sequence_length = max(10, min(sequence_length, 800))  # Clamp to reasonable bounds
         
         with torch.no_grad():
             if state.dim() == 1:
@@ -163,7 +166,6 @@ class ImprovedSequenceEditPolicyV2(nn.Module):
                 squeeze_output = False
 
             if deterministic:
-                # Use temperature scaling for better deterministic actions
                 if squeeze_output:
                     edit_type_probs = output['edit_type']
                     position_probs = output['position']
@@ -173,10 +175,7 @@ class ImprovedSequenceEditPolicyV2(nn.Module):
                     position_probs = output['position'][0]
                     aa_probs = output['amino_acid'][0]
                 
-                # Apply temperature for more confident decisions
-                temp = 0.5
-                edit_type_probs = F.softmax(torch.log(edit_type_probs + 1e-8) / temp, dim=-1)
-                
+                # Get edit type
                 edit_type_idx = edit_type_probs.argmax().item()
                 edit_type = ['substitution', 'insertion', 'deletion', 'stop'][edit_type_idx]
                 
@@ -188,14 +187,35 @@ class ImprovedSequenceEditPolicyV2(nn.Module):
                         'log_prob': torch.tensor(0.0, device=device)
                     }
                 
-                # Better position selection
+                # 🚨 CRITICAL FIX: Proper position bounds
                 if edit_type == 'insertion':
-                    valid_positions = min(sequence_length + 1, len(position_probs))
-                else:
-                    valid_positions = min(sequence_length, len(position_probs))
+                    max_valid_pos = sequence_length  # Can insert at end
+                else:  # substitution or deletion
+                    max_valid_pos = sequence_length - 1  # Must be within sequence
                 
-                valid_position_probs = position_probs[:valid_positions]
-                position_idx = valid_position_probs.argmax().item()
+                # Only consider valid positions
+                if max_valid_pos >= 0:
+                    valid_position_probs = position_probs[:max_valid_pos + 1]
+                    if len(valid_position_probs) > 0:
+                        position_idx = valid_position_probs.argmax().item()
+                    else:
+                        position_idx = 0
+                else:
+                    # Sequence too short, default to stop
+                    return {
+                        'type': 'stop',
+                        'position': 0,
+                        'amino_acid': None,
+                        'log_prob': torch.tensor(0.0, device=device)
+                    }
+                
+                # 🚨 VALIDATION: Double-check bounds
+                if edit_type == 'insertion' and position_idx > sequence_length:
+                    print(f"🚨 BOUNDS ERROR: insertion pos {position_idx} > {sequence_length}")
+                    position_idx = sequence_length
+                elif edit_type in ['substitution', 'deletion'] and position_idx >= sequence_length:
+                    print(f"🚨 BOUNDS ERROR: {edit_type} pos {position_idx} >= {sequence_length}")
+                    position_idx = max(0, sequence_length - 1)
                 
                 aa_idx = aa_probs.argmax().item()
                 amino_acid = list('ACDEFGHIKLMNPQRSTVWY')[aa_idx] if edit_type in ['substitution', 'insertion'] else None
@@ -208,7 +228,7 @@ class ImprovedSequenceEditPolicyV2(nn.Module):
                 }
 
             else:
-                # Stochastic action selection with better exploration
+                # 🚨 FIXED: Stochastic action with bounds checking
                 action_space = SequenceActionSpace()
                 
                 if squeeze_output:
@@ -216,4 +236,17 @@ class ImprovedSequenceEditPolicyV2(nn.Module):
                 else:
                     sample_output = {k: v[0] for k, v in output.items() if isinstance(v, torch.Tensor)}
                 
-                return action_space.sample_action(sample_output, sequence_length)
+                # Get action from action space with bounds
+                action = action_space.sample_action(sample_output, sequence_length)
+                
+                # 🚨 ADDITIONAL VALIDATION: Double-check the action
+                if action['type'] != 'stop':
+                    pos = action.get('position', 0)
+                    if action['type'] == 'insertion' and pos > sequence_length:
+                        print(f"🚨 FIXING: insertion {pos} -> {sequence_length}")
+                        action['position'] = sequence_length
+                    elif action['type'] in ['substitution', 'deletion'] and pos >= sequence_length:
+                        print(f"🚨 FIXING: {action['type']} {pos} -> {max(0, sequence_length-1)}")
+                        action['position'] = max(0, sequence_length - 1)
+                
+                return action
