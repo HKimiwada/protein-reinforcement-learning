@@ -73,6 +73,15 @@ def get_stable_config_v2(name: str = 'stable') -> StableTrainingConfigV2:
             test_interval=25,        # More frequent testing
             log_interval=10,         # More frequent logging
             run_name='stable-test-v2'
+        ),
+        
+        'stable_long': StableTrainingConfigV2(
+            n_episodes=1800,
+            learning_rate=6e-5,      # Slightly lower LR for stability
+            entropy_coeff=0.10,      # Moderate exploration
+            max_steps=40,            # Much longer episodes
+            clip_epsilon=0.12,       # Slightly smaller clips
+            run_name='stable-long-episodes-v2'
         )
     }
     

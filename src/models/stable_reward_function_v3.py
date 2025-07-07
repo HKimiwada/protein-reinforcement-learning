@@ -24,13 +24,14 @@ class StableSpiderSilkRewardFunctionV3(SpiderSilkRewardFunction):
         self.recent_rewards = []
         self.reward_history_size = 20
         
-        # Episode management parameters
-        self.min_episode_length = 3  # Minimum steps before allowing termination
-        self.max_cumulative_improvement = 0.02  # Higher threshold for early termination
-        self.target_improvement_per_episode = 0.005  # More ambitious target
+        # Episode management parameters - FIXED to allow longer episodes
+        self.min_episode_length = 8  # Increased from 3 to 8
+        self.max_episode_length = 25  # Clear maximum
+        self.consecutive_bad_steps_threshold = 6  # Allow more bad steps before termination
+        self.target_improvement_per_episode = 0.005
 
     def calculate_reward(self, old_seq, new_seq, edit_history, original_seq, episode_number):
-        """Simplified reward aligned with actual improvement"""
+        """Simplified reward aligned with actual improvement with FIXED termination logic"""
         
         # Get actual step improvement (ONLY source of positive reward)
         old_tough, _ = self.predict_toughness(old_seq)
@@ -47,16 +48,76 @@ class StableSpiderSilkRewardFunctionV3(SpiderSilkRewardFunction):
         else:
             reward = max(-1.0, actual_improvement * 200)  # Penalty for degradation
         
-        # Simple termination: stop if no improvement for several steps
+        # FIXED TERMINATION LOGIC - Much less aggressive
         edit_count = len(edit_history)
-        recent_improvements = [h.get('improvement', 0) for h in edit_history[-3:]]
-        done = (edit_count >= 3 and all(imp <= 0 for imp in recent_improvements)) or edit_count >= 20
+        done = False
+        
+        # Only consider termination after minimum episode length
+        if edit_count >= self.min_episode_length:
+            
+            # Check for consecutive bad steps (no improvement)
+            recent_improvements = []
+            for h in edit_history[-self.consecutive_bad_steps_threshold:]:
+                # Get improvement from edit history - check different possible keys
+                step_improvement = h.get('toughness_improvement', 
+                                        h.get('improvement', 
+                                             h.get('actual_improvement', 0)))
+                recent_improvements.append(step_improvement)
+            
+            # Terminate only if:
+            # 1. We've had many consecutive steps with no improvement, OR
+            # 2. We've reached maximum episode length, OR  
+            # 3. We've achieved exceptional cumulative improvement
+            
+            consecutive_no_improvement = len(recent_improvements) >= self.consecutive_bad_steps_threshold and all(imp <= 0.0001 for imp in recent_improvements)
+            reached_max_length = edit_count >= self.max_episode_length
+            
+            # Check cumulative improvement
+            if original_seq and original_seq != new_seq:
+                try:
+                    orig_tough, _ = self.predict_toughness(original_seq)
+                    cumulative_improvement = new_tough - orig_tough
+                    exceptional_performance = cumulative_improvement > 0.08  # Very high threshold
+                except:
+                    exceptional_performance = False
+            else:
+                exceptional_performance = False
+            
+            # Termination decision
+            if consecutive_no_improvement:
+                done = True
+                logger.debug(f"Episode {episode_number}: Terminating after {edit_count} steps due to {len(recent_improvements)} consecutive steps with no improvement")
+            elif reached_max_length:
+                done = True
+                logger.debug(f"Episode {episode_number}: Terminating after reaching max length {edit_count}")
+            elif exceptional_performance:
+                done = True
+                logger.info(f"Episode {episode_number}: Early termination due to exceptional performance!")
+        
+        # Additional logging for debugging episode length
+        if edit_count <= 5:
+            logger.debug(f"Episode {episode_number}, Step {edit_count}: improvement={actual_improvement:.6f}, reward={reward:.3f}, done={done}")
         
         return {
             'total': float(reward),
             'done': done,
-            'actual_improvement': actual_improvement
+            'actual_improvement': actual_improvement,
+            'edit_count': edit_count,
+            'termination_reason': self._get_termination_reason(done, edit_count, exceptional_performance if 'exceptional_performance' in locals() else False)
         }
+    
+    def _get_termination_reason(self, done, edit_count, exceptional_performance):
+        """Helper to track why episodes terminate"""
+        if not done:
+            return "continuing"
+        elif exceptional_performance:
+            return "exceptional_performance"
+        elif edit_count >= self.max_episode_length:
+            return "max_length"
+        elif edit_count >= self.min_episode_length:
+            return "no_improvement"
+        else:
+            return "unknown"
     
     def _has_reasonable_composition(self, sequence: str) -> bool:
         """

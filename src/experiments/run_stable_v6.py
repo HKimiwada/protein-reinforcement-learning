@@ -1,5 +1,6 @@
 """
 python src/experiments/run_stable_v6.py --config stable --episodes 6000 --seeds 42,123,456,789,999,1337,2024,7777
+python src/experiments/run_stable_v6.py --config stable_long --episodes 1800 --seeds 42,123,456,789,999,1337,2024,7777
 """
 import os
 import sys
@@ -734,7 +735,7 @@ def main():
     
     parser = argparse.ArgumentParser(description='Enhanced Multi-Seed RL Training with Fixed Metrics')
     parser.add_argument('--config', type=str, default='stable',
-                       choices=['stable', 'stable_conservative', 'stable_aggressive', 'stable_test'],
+                       choices=['stable', 'stable_conservative', 'stable_aggressive', 'stable_test', 'stable_long'],
                        help='Configuration to use')
     parser.add_argument('--episodes', type=int, default=800,
                        help='Number of episodes per experiment')
