@@ -1,5 +1,4 @@
 """
-python src/experiments/run_stable_v6.py --config stable --episodes 6000 --seeds 42,123,456,789,999,1337,2024,7777
 python src/experiments/run_stable_v6.py --config stable_long --episodes 1800 --seeds 42,123,456,789,999,1337,2024,7777
 """
 import os
@@ -33,7 +32,11 @@ from transformers import AutoModelForMaskedLM, AutoModelForCausalLM, AutoTokeniz
 # Setup logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('latest_rl_training_detailed.log'),
+        logging.StreamHandler()
+    ]
 )
 logger = logging.getLogger(__name__)
 

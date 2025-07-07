@@ -52,10 +52,27 @@ class StableSpiderSilkRewardFunctionV3(SpiderSilkRewardFunction):
         edit_count = len(edit_history)
         done = False
         
+        # Calculate cumulative improvement for logging and termination
+        cumulative_improvement = 0.0
+        original_toughness = 0.0
+        final_toughness = new_tough
+        
+        if original_seq and original_seq != new_seq:
+            try:
+                original_toughness, _ = self.predict_toughness(original_seq)
+                cumulative_improvement = new_tough - original_toughness
+            except Exception as e:
+                logger.warning(f"Failed to calculate cumulative improvement: {e}")
+                cumulative_improvement = actual_improvement
+        else:
+            cumulative_improvement = actual_improvement
+            original_toughness = old_tough
+        
         # Only consider termination after minimum episode length
         if edit_count >= self.min_episode_length:
             
             # Check for consecutive bad steps (no improvement)
+            # BUT only if we have enough steps to actually check for consecutive failures
             recent_improvements = []
             for h in edit_history[-self.consecutive_bad_steps_threshold:]:
                 # Get improvement from edit history - check different possible keys
@@ -65,43 +82,66 @@ class StableSpiderSilkRewardFunctionV3(SpiderSilkRewardFunction):
                 recent_improvements.append(step_improvement)
             
             # Terminate only if:
-            # 1. We've had many consecutive steps with no improvement, OR
+            # 1. We've had many consecutive steps with no improvement, AND we have enough history, OR
             # 2. We've reached maximum episode length, OR  
             # 3. We've achieved exceptional cumulative improvement
             
-            consecutive_no_improvement = len(recent_improvements) >= self.consecutive_bad_steps_threshold and all(imp <= 0.0001 for imp in recent_improvements)
-            reached_max_length = edit_count >= self.max_episode_length
+            # FIXED: Only check consecutive no improvement if we have enough steps beyond minimum
+            has_enough_history_for_consecutive_check = edit_count >= (self.min_episode_length + self.consecutive_bad_steps_threshold - 1)
+            consecutive_no_improvement = (has_enough_history_for_consecutive_check and 
+                                        len(recent_improvements) >= self.consecutive_bad_steps_threshold and 
+                                        all(imp <= 0.0001 for imp in recent_improvements))
             
-            # Check cumulative improvement
-            if original_seq and original_seq != new_seq:
-                try:
-                    orig_tough, _ = self.predict_toughness(original_seq)
-                    cumulative_improvement = new_tough - orig_tough
-                    exceptional_performance = cumulative_improvement > 0.08  # Very high threshold
-                except:
-                    exceptional_performance = False
-            else:
-                exceptional_performance = False
+            reached_max_length = edit_count >= self.max_episode_length
+            exceptional_performance = cumulative_improvement > 0.08  # Very high threshold
             
             # Termination decision
             if consecutive_no_improvement:
                 done = True
-                logger.debug(f"Episode {episode_number}: Terminating after {edit_count} steps due to {len(recent_improvements)} consecutive steps with no improvement")
+                termination_reason = "no_improvement"
             elif reached_max_length:
                 done = True
-                logger.debug(f"Episode {episode_number}: Terminating after reaching max length {edit_count}")
+                termination_reason = "max_length"
             elif exceptional_performance:
                 done = True
-                logger.info(f"Episode {episode_number}: Early termination due to exceptional performance!")
+                termination_reason = "exceptional_performance"
+        
+        # ENHANCED EPISODE END LOGGING
+        if done:
+            # Comprehensive episode summary with toughness changes
+            logger.info(f"🏁 EPISODE {episode_number} COMPLETE (Steps: {edit_count}) 🏁")
+            logger.info(f"   📊 TOUGHNESS CHANGE:")
+            logger.info(f"      Original: {original_toughness:.6f}")
+            logger.info(f"      Final:    {final_toughness:.6f}")
+            logger.info(f"      Total Δ:  {cumulative_improvement:+.6f} ({cumulative_improvement*100:+.3f}%)")
+            logger.info(f"      Last Δ:   {actual_improvement:+.6f}")
+            logger.info(f"   🎯 PERFORMANCE:")
+            logger.info(f"      Final Reward: {reward:.3f}")
+            logger.info(f"      Edits Made:   {edit_count}")
+            logger.info(f"      Success:      {'✅ YES' if cumulative_improvement > 0.001 else '❌ NO'}")
+            logger.info(f"   🛑 TERMINATION: {termination_reason}")
+            
+            # Special logging for exceptional performance
+            if termination_reason == "exceptional_performance":
+                logger.info(f"   🎉 EXCEPTIONAL PERFORMANCE! Improvement: {cumulative_improvement:.6f}")
+            elif termination_reason == "no_improvement":
+                logger.info(f"   ⏹️  Stopped due to {len(recent_improvements)} consecutive steps with no improvement")
+            elif termination_reason == "max_length":
+                logger.info(f"   ⏱️  Reached maximum episode length ({self.max_episode_length} steps)")
+            
+            logger.info(f"   " + "="*60)
         
         # Additional logging for debugging episode length
-        if edit_count <= 5:
-            logger.debug(f"Episode {episode_number}, Step {edit_count}: improvement={actual_improvement:.6f}, reward={reward:.3f}, done={done}")
+        elif edit_count <= 5:
+            logger.debug(f"Episode {episode_number}, Step {edit_count}: improvement={actual_improvement:.6f}, reward={reward:.3f}, cumulative={cumulative_improvement:.6f}")
         
         return {
             'total': float(reward),
             'done': done,
             'actual_improvement': actual_improvement,
+            'cumulative_improvement': cumulative_improvement,
+            'original_toughness': original_toughness,
+            'final_toughness': final_toughness,
             'edit_count': edit_count,
             'termination_reason': self._get_termination_reason(done, edit_count, exceptional_performance if 'exceptional_performance' in locals() else False)
         }
