@@ -1,5 +1,5 @@
 """
-python src/experiments/run_stable_v6.py --config stable --episodes 600 --seeds 42,123,456,789,999,1337,2024,7777
+python src/experiments/run_stable_v6.py --config stable --episodes 6000 --seeds 42,123,456,789,999,1337,2024,7777
 """
 import os
 import sys
