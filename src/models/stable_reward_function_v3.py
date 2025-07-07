@@ -27,7 +27,7 @@ class StableSpiderSilkRewardFunctionV3(SpiderSilkRewardFunction):
         # Episode management parameters - FIXED to allow longer episodes
         self.min_episode_length = 8  # Increased from 3 to 8
         self.max_episode_length = 25  # Clear maximum
-        self.consecutive_bad_steps_threshold = 6  # Allow more bad steps before termination
+        self.consecutive_bad_steps_threshold = 8  # Allow more bad steps before termination
         self.target_improvement_per_episode = 0.005
 
     def calculate_reward(self, old_seq, new_seq, edit_history, original_seq, episode_number):
