@@ -1,3 +1,4 @@
+# stable_reward_function_v3.py
 import math
 import torch
 import numpy as np
@@ -24,10 +25,12 @@ class StableSpiderSilkRewardFunctionV3(SpiderSilkRewardFunction):
         self.recent_rewards = []
         self.reward_history_size = 20
         
-        # Episode management parameters - FIXED to allow longer episodes
-        self.min_episode_length = 8  # Increased from 3 to 8
-        self.max_episode_length = 25  # Clear maximum
-        self.consecutive_bad_steps_threshold = 8  # Allow more bad steps before termination
+        # Episode management parameters - ENHANCED for different improvement types
+        self.min_episode_length = 8  # Minimum for any episode
+        self.max_episode_length = 40  # Increased to allow for full exploration
+        self.consecutive_bad_steps_threshold = 6  # For negative improvement
+        self.zero_improvement_min_length = 20   # Must reach 20 steps before checking zero improvement
+        self.zero_improvement_patience = 10     # Allow 10 consecutive zero steps after step 20
         self.target_improvement_per_episode = 0.005
 
     def calculate_reward(self, old_seq, new_seq, edit_history, original_seq, episode_number):
@@ -51,6 +54,7 @@ class StableSpiderSilkRewardFunctionV3(SpiderSilkRewardFunction):
         # FIXED TERMINATION LOGIC - Much less aggressive
         edit_count = len(edit_history)
         done = False
+        termination_reason = None
         
         # Calculate cumulative improvement for logging and termination
         cumulative_improvement = 0.0
@@ -71,34 +75,55 @@ class StableSpiderSilkRewardFunctionV3(SpiderSilkRewardFunction):
         # Only consider termination after minimum episode length
         if edit_count >= self.min_episode_length:
             
-            # Check for consecutive bad steps (no improvement)
-            # BUT only if we have enough steps to actually check for consecutive failures
-            recent_improvements = []
+            # CORRECTED LOGIC: Different counting windows for different termination types
+            
+            # 1. NEGATIVE IMPROVEMENT: Check recent steps (can start early)
+            recent_negative_improvements = []
             for h in edit_history[-self.consecutive_bad_steps_threshold:]:
-                # Get improvement from edit history - check different possible keys
                 step_improvement = h.get('toughness_improvement', 
                                         h.get('improvement', 
                                              h.get('actual_improvement', 0)))
-                recent_improvements.append(step_improvement)
+                recent_negative_improvements.append(step_improvement)
             
-            # Terminate only if:
-            # 1. We've had many consecutive steps with no improvement, AND we have enough history, OR
-            # 2. We've reached maximum episode length, OR  
-            # 3. We've achieved exceptional cumulative improvement
+            consecutive_negative_improvement = (len(recent_negative_improvements) >= self.consecutive_bad_steps_threshold and
+                                              all(imp < -0.0001 for imp in recent_negative_improvements))
             
-            # FIXED: Only check consecutive no improvement if we have enough steps beyond minimum
-            has_enough_history_for_consecutive_check = edit_count >= (self.min_episode_length + self.consecutive_bad_steps_threshold - 1)
-            consecutive_no_improvement = (has_enough_history_for_consecutive_check and 
-                                        len(recent_improvements) >= self.consecutive_bad_steps_threshold and 
-                                        all(imp <= 0.0001 for imp in recent_improvements))
+            # 2. ZERO IMPROVEMENT: Only check AFTER step 30 (20 + 10)
+            consecutive_zero_improvement = False
+            min_steps_for_zero_check = self.zero_improvement_min_length + self.zero_improvement_patience  # 20 + 10 = 30
             
+            if edit_count >= min_steps_for_zero_check:
+                # Look at steps 21-30 (the last 10 steps after the first 20)
+                recent_zero_check_steps = edit_history[-self.zero_improvement_patience:]
+                
+                # Double-check we have exactly the patience window
+                if len(recent_zero_check_steps) == self.zero_improvement_patience:
+                    recent_zero_improvements = []
+                    for h in recent_zero_check_steps:
+                        step_improvement = h.get('toughness_improvement', 
+                                                h.get('improvement', 
+                                                     h.get('actual_improvement', 0)))
+                        recent_zero_improvements.append(step_improvement)
+                    
+                    # Check if ALL of the last 10 steps were zero improvement
+                    consecutive_zero_improvement = all(-0.0001 <= imp <= 0.0001 for imp in recent_zero_improvements)
+                    
+                    # DEBUG LOGGING
+                    if edit_count >= min_steps_for_zero_check and edit_count <= min_steps_for_zero_check + 2:
+                        logger.debug(f"Episode {episode_number}, Step {edit_count}: Zero check - last {len(recent_zero_improvements)} steps: {[f'{imp:.6f}' for imp in recent_zero_improvements]}")
+                        logger.debug(f"  All zero? {consecutive_zero_improvement}")
+            
+            # TERMINATION RULES:
             reached_max_length = edit_count >= self.max_episode_length
-            exceptional_performance = cumulative_improvement > 0.08  # Very high threshold
+            exceptional_performance = cumulative_improvement > 0.08
             
-            # Termination decision
-            if consecutive_no_improvement:
+            # Termination decision with CORRECTED logic
+            if consecutive_negative_improvement:
                 done = True
-                termination_reason = "no_improvement"
+                termination_reason = "consecutive_negative"
+            elif consecutive_zero_improvement:
+                done = True  
+                termination_reason = "zero_after_exploration"
             elif reached_max_length:
                 done = True
                 termination_reason = "max_length"
@@ -121,19 +146,27 @@ class StableSpiderSilkRewardFunctionV3(SpiderSilkRewardFunction):
             logger.info(f"      Success:      {'✅ YES' if cumulative_improvement > 0.001 else '❌ NO'}")
             logger.info(f"   🛑 TERMINATION: {termination_reason}")
             
-            # Special logging for exceptional performance
+            # Special logging for different termination types
             if termination_reason == "exceptional_performance":
                 logger.info(f"   🎉 EXCEPTIONAL PERFORMANCE! Improvement: {cumulative_improvement:.6f}")
-            elif termination_reason == "no_improvement":
-                logger.info(f"   ⏹️  Stopped due to {len(recent_improvements)} consecutive steps with no improvement")
+            elif termination_reason == "consecutive_negative":
+                logger.info(f"   🚫 Terminated due to {self.consecutive_bad_steps_threshold} consecutive NEGATIVE improvements")
+            elif termination_reason == "zero_after_exploration":
+                logger.info(f"   ⚪ Terminated at step {edit_count}: {self.zero_improvement_patience} consecutive ZERO improvements after step {self.zero_improvement_min_length}")
+                logger.info(f"   📈 Required minimum steps before zero-check: {self.zero_improvement_min_length + self.zero_improvement_patience}")
             elif termination_reason == "max_length":
                 logger.info(f"   ⏱️  Reached maximum episode length ({self.max_episode_length} steps)")
             
             logger.info(f"   " + "="*60)
         
-        # Additional logging for debugging episode length
-        elif edit_count <= 5:
+        # Additional logging for debugging episode length - Enhanced
+        elif edit_count <= 5 or edit_count % 5 == 0:
             logger.debug(f"Episode {episode_number}, Step {edit_count}: improvement={actual_improvement:.6f}, reward={reward:.3f}, cumulative={cumulative_improvement:.6f}")
+            
+            # Special logging around the critical step 30
+            if edit_count >= 25 and edit_count <= 32:
+                min_steps_for_zero_check = self.zero_improvement_min_length + self.zero_improvement_patience
+                logger.debug(f"  Zero termination check will activate at step {min_steps_for_zero_check}")
         
         return {
             'total': float(reward),
@@ -143,19 +176,21 @@ class StableSpiderSilkRewardFunctionV3(SpiderSilkRewardFunction):
             'original_toughness': original_toughness,
             'final_toughness': final_toughness,
             'edit_count': edit_count,
-            'termination_reason': self._get_termination_reason(done, edit_count, exceptional_performance if 'exceptional_performance' in locals() else False)
+            'termination_reason': self._get_termination_reason(done, edit_count, exceptional_performance if 'exceptional_performance' in locals() else False, termination_reason)
         }
     
-    def _get_termination_reason(self, done, edit_count, exceptional_performance):
+    def _get_termination_reason(self, done, edit_count, exceptional_performance, termination_reason=None):
         """Helper to track why episodes terminate"""
         if not done:
             return "continuing"
+        elif termination_reason:
+            return termination_reason  # Use the detailed reason from calculate_reward
         elif exceptional_performance:
             return "exceptional_performance"
         elif edit_count >= self.max_episode_length:
             return "max_length"
         elif edit_count >= self.min_episode_length:
-            return "no_improvement"
+            return "no_improvement"  # Fallback
         else:
             return "unknown"
     
