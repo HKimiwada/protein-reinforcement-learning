@@ -49,7 +49,7 @@ class StableSpiderSilkRewardFunctionV3(SpiderSilkRewardFunction):
         elif actual_improvement > 0:
             reward = actual_improvement * 400  # Any improvement
         else:
-            reward = max(-1.0, actual_improvement * 200)  # Penalty for degradation
+            reward = max(-3.0, actual_improvement * 800)  # Penalty for degradation
         
         # FIXED TERMINATION LOGIC - Much less aggressive
         edit_count = len(edit_history)

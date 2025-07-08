@@ -1,6 +1,8 @@
-# v2_protein_env.py
 from src.environment.action_space import SequenceActionSpace
 from src.environment.state_encoder import SequenceStateEncoder
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ProteinEditEnvironmentV2:
     def __init__(self, utils, reward_function, max_steps=50):
@@ -60,6 +62,9 @@ class ProteinEditEnvironmentV2:
                     reward = -0.1
                 else:
                     reward = 0.05
+                
+                # LOG EPISODE COMPLETION FOR STOP ACTION
+                self._log_episode_completion("stop_action", reward)
                     
                 return self.get_state(), reward, True, {'action': action, 'stop_allowed': True}
 
@@ -154,10 +159,13 @@ class ProteinEditEnvironmentV2:
         # Update step count
         self.step_count += 1
 
-        # 🚀 FIXED: Only check max_steps termination, let reward function handle other termination
+        # 🚀 ENHANCED: Check max_steps termination with logging
         if self.step_count >= self.max_steps:
             self.done = True
             print(f"⏰ FORCED TERMINATION: Reached max_steps {self.max_steps}")
+            
+            # LOG EPISODE COMPLETION FOR MAX STEPS TERMINATION
+            self._log_episode_completion("max_steps", reward)
 
         info = {
             'action': action,
@@ -171,6 +179,48 @@ class ProteinEditEnvironmentV2:
         }
 
         return self.get_state(), reward, self.done, info
+
+    def _log_episode_completion(self, termination_reason, final_reward):
+        """Log episode completion when terminated by environment (not reward function)"""
+        
+        # Calculate toughness changes
+        try:
+            original_toughness, _ = self.reward_fn.predict_toughness(self.original_sequence)
+            final_toughness, _ = self.reward_fn.predict_toughness(self.current_sequence)
+            cumulative_improvement = final_toughness - original_toughness
+        except:
+            original_toughness = 0.0
+            final_toughness = 0.0
+            cumulative_improvement = 0.0
+        
+        # Get last step improvement
+        last_improvement = 0.0
+        if self.edit_history:
+            last_edit = self.edit_history[-1]
+            last_improvement = last_edit.get('toughness_improvement', 0.0)
+        
+        edit_count = len(self.edit_history)
+        
+        # LOG EPISODE COMPLETION (matching reward function format)
+        logger.info(f"🏁 EPISODE {self.episode_number} COMPLETE (Steps: {edit_count}) 🏁")
+        logger.info(f"   📊 TOUGHNESS CHANGE:")
+        logger.info(f"      Original: {original_toughness:.6f}")
+        logger.info(f"      Final:    {final_toughness:.6f}")
+        logger.info(f"      Total Δ:  {cumulative_improvement:+.6f} ({cumulative_improvement*100:+.3f}%)")
+        logger.info(f"      Last Δ:   {last_improvement:+.6f}")
+        logger.info(f"   🎯 PERFORMANCE:")
+        logger.info(f"      Final Reward: {final_reward:.3f}")
+        logger.info(f"      Edits Made:   {edit_count}")
+        logger.info(f"      Success:      {'✅ YES' if cumulative_improvement > 0.001 else '❌ NO'}")
+        logger.info(f"   🛑 TERMINATION: {termination_reason}")
+        
+        # Special logging for different termination types
+        if termination_reason == "max_steps":
+            logger.info(f"   ⏰ Reached environment maximum steps ({self.max_steps})")
+        elif termination_reason == "stop_action":
+            logger.info(f"   🛑 Agent chose to stop after {edit_count} edits")
+        
+        logger.info(f"   " + "="*60)
 
     def _execute_action(self, action):
         """Execute the action and return new sequence with better bounds checking"""
