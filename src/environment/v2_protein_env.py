@@ -40,10 +40,10 @@ class ProteinEditEnvironmentV2:
 
         old_sequence = self.current_sequence
 
-        # 🚀 FIXED: Prevent premature stopping before minimum episode length
+        # 🚀 ENHANCED: Selective stop action blocking based on cumulative improvement
         if action['type'] == 'stop':
             if self.step_count < self.min_episode_length:
-                # FORCE CONVERSION: Convert stop to a random valid edit action
+                # Always block stop before minimum length
                 print(f"🛑 BLOCKED: Stop action at step {self.step_count} < {self.min_episode_length}, converting to substitution")
                 action = {
                     'type': 'substitution',
@@ -52,21 +52,41 @@ class ProteinEditEnvironmentV2:
                     'log_prob': action.get('log_prob', 0.0)
                 }
             else:
-                # Allow stop after minimum length
-                self.done = True
+                # Check cumulative improvement to decide if stop is allowed
+                try:
+                    original_toughness, _ = self.reward_fn.predict_toughness(self.original_sequence)
+                    current_toughness, _ = self.reward_fn.predict_toughness(self.current_sequence)
+                    cumulative_improvement = current_toughness - original_toughness
+                except:
+                    cumulative_improvement = 0.0
                 
-                # Stop reward depends on whether any progress was made
-                if len(self.edit_history) == 0:
-                    reward = -0.5
-                elif len(self.edit_history) < 3:
-                    reward = -0.1
+                # SELECTIVE BLOCKING: Only block stop if there's zero improvement
+                if cumulative_improvement <= 0.001:  # No meaningful improvement
+                    print(f"🚫 BLOCKED: Stop action with zero improvement ({cumulative_improvement:.6f}), converting to substitution")
+                    print(f"   Forcing exploration via reward function logic...")
+                    action = {
+                        'type': 'substitution',
+                        'position': min(self.step_count % len(self.current_sequence), len(self.current_sequence) - 1),
+                        'amino_acid': 'G',  # Safe amino acid
+                        'log_prob': action.get('log_prob', 0.0)
+                    }
                 else:
-                    reward = 0.05
-                
-                # LOG EPISODE COMPLETION FOR STOP ACTION
-                self._log_episode_completion("stop_action", reward)
+                    # Allow stop after meaningful improvement
+                    print(f"✅ ALLOWING: Stop action with improvement ({cumulative_improvement:.6f})")
+                    self.done = True
                     
-                return self.get_state(), reward, True, {'action': action, 'stop_allowed': True}
+                    # Reward based on improvement achieved
+                    if cumulative_improvement > 0.01:
+                        reward = 0.3  # Good improvement
+                    elif cumulative_improvement > 0.005:
+                        reward = 0.2  # Decent improvement
+                    else:
+                        reward = 0.1  # Small but meaningful improvement
+                    
+                    # LOG EPISODE COMPLETION FOR STOP ACTION
+                    self._log_episode_completion("stop_action", reward)
+                        
+                    return self.get_state(), reward, True, {'action': action, 'stop_allowed': True}
 
         # Execute edit action
         new_sequence = self._execute_action(action)

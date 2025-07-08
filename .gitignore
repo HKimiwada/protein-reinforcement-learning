@@ -1,3 +1,5 @@
 src/models/checkpoint-1452
 wandb
 results
+latest_rl_training_detailed.log
+training_detailed.log

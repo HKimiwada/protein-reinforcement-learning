@@ -287,7 +287,7 @@ class SimplifiedTrainer:
         }
 
     def _collect_episode(self, starting_sequence: str, episode_number: int):
-        """Collect episode experience"""
+        """Collect episode experience with cumulative improvement tracking"""
         
         state = self.environment.reset(starting_sequence).to(self.device)
         self.environment.set_episode_number(episode_number)
@@ -299,9 +299,20 @@ class SimplifiedTrainer:
         
         while not self.environment.done and len(states) < 40: # This 40 have to be the same max_steps as the config.
             with torch.no_grad():
-                policy_output = self.policy(state)
+                
+                # ENHANCED: Calculate cumulative improvement for policy
+                try:
+                    original_toughness, _ = self.environment.reward_fn.predict_toughness(self.environment.original_sequence)
+                    current_toughness, _ = self.environment.reward_fn.predict_toughness(self.environment.current_sequence)
+                    cumulative_improvement = current_toughness - original_toughness
+                except:
+                    cumulative_improvement = 0.0
+                
+                # Pass cumulative improvement to policy
+                policy_output = self.policy(state, step_count=len(states), cumulative_improvement=cumulative_improvement)
                 current_seq_len = len(self.environment.current_sequence)
-                action = self.policy.get_action(state, deterministic=False, sequence_length=current_seq_len, step_count=len(states))
+                action = self.policy.get_action(state, deterministic=False, sequence_length=current_seq_len, 
+                                               step_count=len(states), cumulative_improvement=cumulative_improvement)
                 
                 log_prob = action.get('log_prob', torch.tensor(0.0))
                 if not isinstance(log_prob, torch.Tensor):
@@ -480,46 +491,55 @@ class SimplifiedTrainer:
             return 0.0
 
     def evaluate_test_set(self, dataset, n_sequences=50):
-        """Enhanced test set evaluation with proper success metrics"""
-        test_sequences = dataset.get_test_sequences(n_sequences)
-        results = []
-        
-        self.policy.eval()
-        
-        for seq in test_sequences:
-            original_tough, _ = self.environment.reward_fn.predict_toughness(seq)
+            """Enhanced test set evaluation with cumulative improvement tracking"""
+            test_sequences = dataset.get_test_sequences(n_sequences)
+            results = []
             
-            state = self.environment.reset(seq).to(self.device)
-            total_reward = 0
+            self.policy.eval()
             
-            with torch.no_grad():
-                while not self.environment.done and len(self.environment.edit_history) < 15:
-                    action = self.policy.get_action(state, deterministic=True, step_count=len(self.environment.edit_history))
-                    state, reward, done, info = self.environment.step(action)
-                    state = state.to(self.device)
-                    total_reward += reward
+            for seq in test_sequences:
+                original_tough, _ = self.environment.reward_fn.predict_toughness(seq)
+                
+                state = self.environment.reset(seq).to(self.device)
+                total_reward = 0
+                
+                with torch.no_grad():
+                    while not self.environment.done and len(self.environment.edit_history) < 15:
+                        
+                        # ENHANCED: Calculate cumulative improvement for test evaluation
+                        try:
+                            current_toughness, _ = self.environment.reward_fn.predict_toughness(self.environment.current_sequence)
+                            cumulative_improvement = current_toughness - original_tough
+                        except:
+                            cumulative_improvement = 0.0
+                        
+                        action = self.policy.get_action(state, deterministic=True, 
+                                                    step_count=len(self.environment.edit_history),
+                                                    cumulative_improvement=cumulative_improvement)
+                        state, reward, done, info = self.environment.step(action)
+                        state = state.to(self.device)
+                        total_reward += reward
+                
+                final_tough, _ = self.environment.reward_fn.predict_toughness(self.environment.current_sequence)
+                improvement = final_tough - original_tough
+                
+                results.append({
+                    'reward': total_reward,
+                    'improvement': improvement
+                })
             
-            final_tough, _ = self.environment.reward_fn.predict_toughness(self.environment.current_sequence)
-            improvement = final_tough - original_tough
+            self.policy.train()
             
-            results.append({
-                'reward': total_reward,
-                'improvement': improvement
-            })
-        
-        self.policy.train()
-        
-        # ENHANCED SUCCESS METRICS
-        return {
-            'results': results,
-            'avg_reward': np.mean([r['reward'] for r in results]),
-            'avg_improvement': np.mean([r['improvement'] for r in results]),
-            'real_success_rate': np.mean([r['improvement'] > 0 for r in results]),
-            'meaningful_success_rate': np.mean([r['improvement'] > 0.002 for r in results]),
-            'substantial_success_rate': np.mean([r['improvement'] > 0.01 for r in results]),
-            'reward_success_rate': np.mean([r['reward'] > 0 for r in results])  # For comparison
-        }
-
+            # ENHANCED SUCCESS METRICS
+            return {
+                'results': results,
+                'avg_reward': np.mean([r['reward'] for r in results]),
+                'avg_improvement': np.mean([r['improvement'] for r in results]),
+                'real_success_rate': np.mean([r['improvement'] > 0 for r in results]),
+                'meaningful_success_rate': np.mean([r['improvement'] > 0.002 for r in results]),
+                'substantial_success_rate': np.mean([r['improvement'] > 0.01 for r in results]),
+                'reward_success_rate': np.mean([r['reward'] > 0 for r in results])  # For comparison
+            }
 
 def setup_models(config_dict, device):
     """Setup models on specific device"""

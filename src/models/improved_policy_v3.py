@@ -1,4 +1,4 @@
-# src/models/improved_policy_v3.py
+# src/models/improved_policy_v2.py
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -80,8 +80,8 @@ class ImprovedSequenceEditPolicyV3(nn.Module):
                     nn.init.xavier_uniform_(m.weight, gain=1.0)
                 nn.init.zeros_(m.bias)
 
-    def forward(self, state, step_count=None):
-        """Forward pass with step-count aware processing"""
+    def forward(self, state, step_count=None, cumulative_improvement=None):
+        """Forward pass with step-count and improvement-aware processing"""
         batch_size = state.size(0) if state.dim() > 1 else 1
         if state.dim() == 1:
             state = state.unsqueeze(0)
@@ -112,10 +112,14 @@ class ImprovedSequenceEditPolicyV3(nn.Module):
         position_logits = self.position_head(policy_features)
         amino_acid_logits = self.amino_acid_head(policy_features)
 
-        # 🚀 FIXED: Prevent early stop actions by masking stop probability
+        # 🚀 ENHANCED: Selective stop action masking based on improvement
         if step_count is not None and step_count < self.min_episode_length:
-            # Mask out stop action (index 3) by setting very low logit
-            edit_type_logits[:, 3] = -1e6  # Make stop action nearly impossible
+            # Always mask stop before minimum length
+            edit_type_logits[:, 3] = -1e6
+        elif (step_count is not None and cumulative_improvement is not None and 
+              cumulative_improvement <= 0.001):
+            # Mask stop action if no meaningful improvement yet
+            edit_type_logits[:, 3] = -1e6
         
         # Better probability computation with temperature scaling
         edit_type_probs = F.softmax(edit_type_logits / 0.8, dim=-1)  # Lower temperature
@@ -153,8 +157,8 @@ class ImprovedSequenceEditPolicyV3(nn.Module):
         p = torch.clamp(p, min=eps, max=1.0-eps)
         return p / p.sum(dim=-1, keepdim=True)
 
-    def get_action(self, state, deterministic=False, sequence_length=None, step_count=None):
-        """FIXED action selection with early stop prevention"""
+    def get_action(self, state, deterministic=False, sequence_length=None, step_count=None, cumulative_improvement=None):
+        """FIXED action selection with early stop prevention and cumulative improvement awareness"""
         device = next(self.parameters()).device
         state = state.to(device)
         
@@ -163,16 +167,19 @@ class ImprovedSequenceEditPolicyV3(nn.Module):
         
         if step_count is None:
             step_count = 0
+            
+        if cumulative_improvement is None:
+            cumulative_improvement = 0.0
         
         # 🚨 CRITICAL: Ensure sequence_length is reasonable
         sequence_length = max(10, min(sequence_length, 800))  # Clamp to reasonable bounds
         
         with torch.no_grad():
             if state.dim() == 1:
-                output = self.forward(state.unsqueeze(0), step_count)
+                output = self.forward(state.unsqueeze(0), step_count, cumulative_improvement)
                 squeeze_output = True
             else:
-                output = self.forward(state, step_count)
+                output = self.forward(state, step_count, cumulative_improvement)
                 squeeze_output = False
 
             if deterministic:
@@ -185,13 +192,13 @@ class ImprovedSequenceEditPolicyV3(nn.Module):
                     position_probs = output['position'][0]
                     aa_probs = output['amino_acid'][0]
                 
-                # Get edit type (stop should be very unlikely if step_count < min_episode_length)
+                # Get edit type (stop should be very unlikely if step_count < min_episode_length or no improvement)
                 edit_type_idx = edit_type_probs.argmax().item()
                 edit_type = ['substitution', 'insertion', 'deletion', 'stop'][edit_type_idx]
                 
-                # 🚀 ADDITIONAL SAFETY: Force non-stop action if too early
-                if edit_type == 'stop' and step_count < self.min_episode_length:
-                    print(f"🛑 POLICY OVERRIDE: Preventing stop at step {step_count}, using substitution")
+                # 🚀 ADDITIONAL SAFETY: Force non-stop action based on step count and improvement
+                if edit_type == 'stop' and (step_count < self.min_episode_length or cumulative_improvement <= 0.01):
+                    print(f"🛑 POLICY OVERRIDE: Preventing stop at step {step_count} (improvement: {cumulative_improvement:.6f}), using substitution")
                     edit_type = 'substitution'
                     edit_type_idx = 0
                 
@@ -247,9 +254,9 @@ class ImprovedSequenceEditPolicyV3(nn.Module):
                 # Get action from action space with bounds
                 action = action_space.sample_action(sample_output, sequence_length)
                 
-                # 🚀 ADDITIONAL SAFETY: Override stop actions if too early
-                if action['type'] == 'stop' and step_count < self.min_episode_length:
-                    print(f"🛑 STOCHASTIC OVERRIDE: Preventing stop at step {step_count}, using substitution")
+                # 🚀 ADDITIONAL SAFETY: Override stop actions based on step count and improvement
+                if action['type'] == 'stop' and (step_count < self.min_episode_length or cumulative_improvement <= 0.001):
+                    print(f"🛑 STOCHASTIC OVERRIDE: Preventing stop at step {step_count} (improvement: {cumulative_improvement:.6f}), using substitution")
                     action['type'] = 'substitution'
                     action['position'] = min(step_count, sequence_length - 1)
                     action['amino_acid'] = 'A'
