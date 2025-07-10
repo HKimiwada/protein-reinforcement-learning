@@ -27,7 +27,7 @@ class StableSpiderSilkRewardFunctionV3(SpiderSilkRewardFunction):
         
         # Episode management parameters - ENHANCED for different improvement types
         self.min_episode_length = 8  # Minimum for any episode
-        self.max_episode_length = 40  # Increased to allow for full exploration
+        self.max_episode_length = 35  # Increased to allow for full exploration
         self.consecutive_bad_steps_threshold = 6  # For negative improvement
         self.zero_improvement_min_length = 20   # Must reach 20 steps before checking zero improvement
         self.zero_improvement_patience = 10     # Allow 10 consecutive zero steps after step 20
@@ -36,25 +36,15 @@ class StableSpiderSilkRewardFunctionV3(SpiderSilkRewardFunction):
     def calculate_reward(self, old_seq, new_seq, edit_history, original_seq, episode_number):
         """Simplified reward aligned with actual improvement with FIXED termination logic"""
         
+        # FIXED: Define all variables FIRST
+        edit_count = len(edit_history)
+        done = False
+        termination_reason = None
+        
         # Get actual step improvement (ONLY source of positive reward)
         old_tough, _ = self.predict_toughness(old_seq)
         new_tough, _ = self.predict_toughness(new_seq)
         actual_improvement = new_tough - old_tough
-        
-        # ALIGNED REWARD: Positive only if actual improvement
-        if actual_improvement > 0.003:
-            reward = min(3.0, actual_improvement * 800)  # Excellent improvement
-        elif actual_improvement > 0.001:
-            reward = min(2.0, actual_improvement * 600)  # Good improvement  
-        elif actual_improvement > 0:
-            reward = actual_improvement * 400  # Any improvement
-        else:
-            reward = max(-3.0, actual_improvement * 800)  # Penalty for degradation
-        
-        # FIXED TERMINATION LOGIC - Much less aggressive
-        edit_count = len(edit_history)
-        done = False
-        termination_reason = None
         
         # Calculate cumulative improvement for logging and termination
         cumulative_improvement = 0.0
@@ -71,6 +61,44 @@ class StableSpiderSilkRewardFunctionV3(SpiderSilkRewardFunction):
         else:
             cumulative_improvement = actual_improvement
             original_toughness = old_tough
+        
+        # ENHANCED REWARD: Actively punish zero improvement to encourage exploration
+        if actual_improvement > 0.003:
+            reward = min(3.0, actual_improvement * 800)  # Excellent improvement
+        elif actual_improvement > 0.001:
+            reward = min(2.0, actual_improvement * 600)  # Good improvement  
+        elif actual_improvement > 0:
+            reward = actual_improvement * 400  # Any positive improvement
+        elif actual_improvement == 0.0:
+            # ACTIVELY PUNISH zero improvement - escalating penalty based on episode progress
+            if edit_count <= 5:
+                reward = -0.1  # Early episode: small penalty
+            elif edit_count <= 15:
+                reward = -0.2  # Mid episode: medium penalty
+            else:
+                reward = -0.3  # Late episode: larger penalty for still no progress
+            
+            # ADDITIONAL PUNISHMENT: Check for repeated zero improvements
+            recent_zeros = 0
+            for h in edit_history[-5:]:  # Look at last 5 steps
+                step_improvement = h.get('toughness_improvement', h.get('improvement', h.get('actual_improvement', 0)))
+                if abs(step_improvement) < 0.0001:  # Essentially zero
+                    recent_zeros += 1
+            
+            # Escalating penalty for consecutive zero improvements
+            if recent_zeros >= 3:
+                consecutive_penalty = -0.1 * recent_zeros  # -0.3 for 3 zeros, -0.5 for 5 zeros
+                reward += consecutive_penalty
+                
+        else:
+            reward = max(-1.0, actual_improvement * 200)  # Penalty for degradation
+        
+        # CUMULATIVE PROGRESS PUNISHMENT: Penalize inefficient episodes
+        if edit_count >= 10:
+            efficiency = cumulative_improvement / edit_count  # Improvement per step
+            if efficiency < 0.0001:  # Very low efficiency
+                inefficiency_penalty = -0.2
+                reward += inefficiency_penalty
         
         # Only consider termination after minimum episode length
         if edit_count >= self.min_episode_length:
@@ -159,14 +187,26 @@ class StableSpiderSilkRewardFunctionV3(SpiderSilkRewardFunction):
             
             logger.info(f"   " + "="*60)
         
-        # Additional logging for debugging episode length - Enhanced
+        # Additional logging for debugging episode length - Enhanced with punishment info
         elif edit_count <= 5 or edit_count % 5 == 0:
-            logger.debug(f"Episode {episode_number}, Step {edit_count}: improvement={actual_improvement:.6f}, reward={reward:.3f}, cumulative={cumulative_improvement:.6f}")
+            punishment_info = ""
+            if actual_improvement == 0.0:
+                punishment_info = f" [ZERO PUNISH: {reward:.3f}]"
+            elif actual_improvement < 0:
+                punishment_info = f" [NEG PUNISH: {reward:.3f}]"
+            
+            logger.debug(f"Episode {episode_number}, Step {edit_count}: improvement={actual_improvement:.6f}, reward={reward:.3f}, cumulative={cumulative_improvement:.6f}{punishment_info}")
             
             # Special logging around the critical step 30
             if edit_count >= 25 and edit_count <= 32:
                 min_steps_for_zero_check = self.zero_improvement_min_length + self.zero_improvement_patience
                 logger.debug(f"  Zero termination check will activate at step {min_steps_for_zero_check}")
+                
+                # Log recent improvement pattern
+                if len(edit_history) >= 5:
+                    recent_improvements = [h.get('toughness_improvement', 0) for h in edit_history[-5:]]
+                    zeros_count = sum(1 for imp in recent_improvements if abs(imp) < 0.0001)
+                    logger.debug(f"  Recent pattern: {zeros_count}/5 zero improvements in last 5 steps")
         
         return {
             'total': float(reward),
