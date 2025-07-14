@@ -1,6 +1,13 @@
 """
 python src/experiments/run_stable_v7.py --config stable_long --episodes 600 --seeds 42,123,456,789,999,1337,2024,7777
 python src/experiments/run_stable_v7.py --config stable_long --episodes 50 --seeds 42
+
+# Test the sequence storage and higher max steps:
+python src/experiments/run_stable_v7.py --config stable_long --episodes 5840 --seeds 42,123,456,789,999,1337,2024,7777
+
+# For aggressive exploration:
+python src/experiments/run_stable_v7.py --config stable_aggressive --episodes 300 --seeds 42,123,456,789,999,1337,2024,7777
+
 """
 import os
 import sys
@@ -21,7 +28,7 @@ from typing import Dict, List, Any
 # Add src to path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
-from src.config.stable_configs_v2 import get_stable_config_v2
+from src.config.stable_configs_v3 import get_stable_config_v3
 from src.models.improved_policy_v3 import ImprovedSequenceEditPolicyV3
 from src.models.stable_reward_function_v3 import StableSpiderSilkRewardFunctionV3
 from src.data.dataset import SpiderSilkDataset
@@ -41,9 +48,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 class EnhancedMetricsLogger:
-    """Enhanced metrics logger with proper cumulative tracking and reward alignment debugging"""
+    """Enhanced metrics logger with sequence storage and incremental saving"""
     
     def __init__(self, experiment_id: str, save_dir: str):
         self.experiment_id = experiment_id
@@ -53,6 +59,9 @@ class EnhancedMetricsLogger:
         # Raw episode data
         self.episodes = []
         self.test_evaluations = []
+        
+        # NEW: Sequence storage
+        self.sequences = []
         
         # Proper cumulative tracking
         self.cumulative_toughness_improvement = 0.0
@@ -67,7 +76,7 @@ class EnhancedMetricsLogger:
         }
 
     def log_episode(self, episode_num: int, result: Dict[str, Any]):
-        """Log raw episode data with enhanced metrics"""
+        """Log raw episode data with enhanced metrics AND sequences"""
         
         # Extract key values
         episode_reward = result.get('episode_reward', 0.0)
@@ -88,7 +97,7 @@ class EnhancedMetricsLogger:
             'episode_reward': episode_reward,
             'episode_length': episode_length,
             'actual_improvement': actual_improvement,
-            'cumulative_improvement': self.cumulative_toughness_improvement,  # Now truly cumulative
+            'cumulative_improvement': self.cumulative_toughness_improvement,
             'original_toughness': result.get('original_toughness', 0.0),
             'final_toughness': result.get('final_toughness', 0.0),
             'episode_time': result.get('episode_time', 0.0),
@@ -101,7 +110,7 @@ class EnhancedMetricsLogger:
             'exceptional_improvement': 1 if actual_improvement > 0.05 else 0,
             
             # REWARD DEBUGGING METRICS
-            'reward_based_success': 1 if episode_reward > 0 else 0,  # Old misleading metric for comparison
+            'reward_based_success': 1 if episode_reward > 0 else 0,
             'reward_improvement_aligned': 1 if (episode_reward > 0) == (actual_improvement > 0) else 0,
             'zero_improvement_positive_reward': 1 if (actual_improvement == 0 and episode_reward > 0) else 0,
             'negative_improvement_positive_reward': 1 if (actual_improvement < 0 and episode_reward > 0) else 0,
@@ -133,9 +142,128 @@ class EnhancedMetricsLogger:
             'final_length': len(result.get('final_sequence', '')),
         }
         
+        # NEW: Store sequences separately for analysis
+        sequence_data = {
+            'episode': episode_num,
+            'timestamp': time.time(),
+            'original_sequence': result.get('starting_sequence', ''),
+            'final_sequence': result.get('final_sequence', ''),
+            'sequence_changed': result.get('starting_sequence', '') != result.get('final_sequence', ''),
+            'original_length': len(result.get('starting_sequence', '')),
+            'final_length': len(result.get('final_sequence', '')),
+            'length_change': len(result.get('final_sequence', '')) - len(result.get('starting_sequence', '')),
+            'actual_improvement': actual_improvement,
+            'episode_reward': episode_reward,
+            'episode_length': episode_length,
+            'termination_reason': result.get('episode_summary', {}).get('termination_reason', 'unknown'),
+            'difficulty_level': result.get('difficulty_level', 'unknown'),
+            
+            # Edit summary
+            'edit_type_counts': result.get('episode_summary', {}).get('edit_type_counts', {}),
+            'total_edits': result.get('episode_summary', {}).get('total_edits', 0),
+        }
+        
         self.episodes.append(episode_data)
+        self.sequences.append(sequence_data)
         self.metadata['episodes_completed'] = episode_num
+        
+        # NEW: Auto-save every 50 episodes
+        if episode_num % 50 == 0:
+            self.save_incremental(episode_num)
 
+    def save_incremental(self, episode_num: int):
+        """Save data incrementally every 50 episodes"""
+        try:
+            # Save episodes data
+            episodes_df = pd.DataFrame(self.episodes)
+            episodes_path = self.save_dir / f"{self.experiment_id}_episodes_ep{episode_num}.csv"
+            episodes_df.to_csv(episodes_path, index=False)
+            
+            # Save sequences data
+            sequences_df = pd.DataFrame(self.sequences)
+            sequences_path = self.save_dir / f"{self.experiment_id}_sequences_ep{episode_num}.csv"
+            sequences_df.to_csv(sequences_path, index=False)
+            
+            # Save test evaluations if any
+            if self.test_evaluations:
+                test_df = pd.DataFrame(self.test_evaluations)
+                test_path = self.save_dir / f"{self.experiment_id}_test_evals_ep{episode_num}.csv"
+                test_df.to_csv(test_path, index=False)
+            
+            logger.info(f"📁 Incremental save completed at episode {episode_num}: {episodes_path.name}, {sequences_path.name}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to save incremental data at episode {episode_num}: {e}")
+
+    def save_all(self):
+        """Save all collected data with enhanced metadata (final save)"""
+        
+        # Save episodes data
+        episodes_df = pd.DataFrame(self.episodes)
+        episodes_path = self.save_dir / f"{self.experiment_id}_episodes_FINAL.csv"
+        episodes_df.to_csv(episodes_path, index=False)
+        
+        # Save sequences data  
+        sequences_df = pd.DataFrame(self.sequences)
+        sequences_path = self.save_dir / f"{self.experiment_id}_sequences_FINAL.csv"
+        sequences_df.to_csv(sequences_path, index=False)
+        
+        # Save test evaluations
+        if self.test_evaluations:
+            test_df = pd.DataFrame(self.test_evaluations)
+            test_path = self.save_dir / f"{self.experiment_id}_test_evals_FINAL.csv"
+            test_df.to_csv(test_path, index=False)
+        
+        # Enhanced metadata with final performance summary
+        self.metadata['end_time'] = datetime.now().isoformat()
+        self.metadata['total_episodes'] = len(self.episodes)
+        self.metadata['total_time'] = sum(ep['episode_time'] for ep in self.episodes)
+        
+        # PERFORMANCE SUMMARY
+        if self.episodes:
+            final_real_success_rate = self.total_episodes_with_improvement / len(self.episodes)
+            final_meaningful_rate = self.total_meaningful_improvements / len(self.episodes)
+            avg_improvement = self.cumulative_toughness_improvement / len(self.episodes)
+            
+            # Reward alignment analysis
+            reward_aligned_episodes = sum(1 for ep in self.episodes if ep['reward_improvement_aligned'])
+            false_positive_episodes = sum(1 for ep in self.episodes if ep['zero_improvement_positive_reward'])
+            
+            # Sequence analysis
+            sequences_changed = sum(1 for seq in self.sequences if seq['sequence_changed'])
+            avg_length_change = np.mean([seq['length_change'] for seq in self.sequences])
+            
+            self.metadata['performance_summary'] = {
+                'final_real_success_rate': final_real_success_rate,
+                'final_meaningful_success_rate': final_meaningful_rate,
+                'average_improvement_per_episode': avg_improvement,
+                'cumulative_toughness_improvement': self.cumulative_toughness_improvement,
+                'reward_alignment_rate': reward_aligned_episodes / len(self.episodes),
+                'false_positive_rate': false_positive_episodes / len(self.episodes),
+                'max_single_improvement': max(ep['actual_improvement'] for ep in self.episodes),
+                'best_episode': max(range(len(self.episodes)), key=lambda i: self.episodes[i]['actual_improvement']) + 1,
+                # NEW: Sequence stats
+                'sequences_changed_rate': sequences_changed / len(self.sequences),
+                'average_length_change': avg_length_change,
+                'total_sequences_analyzed': len(self.sequences)
+            }
+        
+        metadata_path = self.save_dir / f"{self.experiment_id}_metadata.json"
+        with open(metadata_path, 'w') as f:
+            json.dump(self.metadata, f, indent=2)
+        
+        logger.info(f"📊 Final data saved: {episodes_path}")
+        logger.info(f"🧬 Sequences saved: {sequences_path}")
+        
+        return {
+            'episodes_file': str(episodes_path),
+            'sequences_file': str(sequences_path),
+            'test_evals_file': str(test_path) if self.test_evaluations else None,
+            'metadata_file': str(metadata_path),
+            'total_episodes': len(self.episodes)
+        }
+
+    # Keep existing log_test_evaluation method unchanged
     def log_test_evaluation(self, episode_num: int, test_results: Dict[str, Any]):
         """Log enhanced test set evaluation"""
         
@@ -175,60 +303,6 @@ class EnhancedMetricsLogger:
         }
         
         self.test_evaluations.append(eval_data)
-
-    def save_all(self):
-        """Save all collected data with enhanced metadata"""
-        
-        # Save episode data
-        episodes_df = pd.DataFrame(self.episodes)
-        episodes_path = self.save_dir / f"{self.experiment_id}_episodes.csv"
-        episodes_df.to_csv(episodes_path, index=False)
-        
-        # Save test evaluations
-        if self.test_evaluations:
-            test_df = pd.DataFrame(self.test_evaluations)
-            test_path = self.save_dir / f"{self.experiment_id}_test_evals.csv"
-            test_df.to_csv(test_path, index=False)
-        
-        # Enhanced metadata with final performance summary
-        self.metadata['end_time'] = datetime.now().isoformat()
-        self.metadata['total_episodes'] = len(self.episodes)
-        self.metadata['total_time'] = sum(ep['episode_time'] for ep in self.episodes)
-        
-        # PERFORMANCE SUMMARY
-        if self.episodes:
-            final_real_success_rate = self.total_episodes_with_improvement / len(self.episodes)
-            final_meaningful_rate = self.total_meaningful_improvements / len(self.episodes)
-            avg_improvement = self.cumulative_toughness_improvement / len(self.episodes)
-            
-            # Reward alignment analysis
-            reward_aligned_episodes = sum(1 for ep in self.episodes if ep['reward_improvement_aligned'])
-            false_positive_episodes = sum(1 for ep in self.episodes if ep['zero_improvement_positive_reward'])
-            
-            self.metadata['performance_summary'] = {
-                'final_real_success_rate': final_real_success_rate,
-                'final_meaningful_success_rate': final_meaningful_rate,
-                'average_improvement_per_episode': avg_improvement,
-                'cumulative_toughness_improvement': self.cumulative_toughness_improvement,
-                'reward_alignment_rate': reward_aligned_episodes / len(self.episodes),
-                'false_positive_rate': false_positive_episodes / len(self.episodes),
-                'max_single_improvement': max(ep['actual_improvement'] for ep in self.episodes),
-                'best_episode': max(range(len(self.episodes)), key=lambda i: self.episodes[i]['actual_improvement']) + 1
-            }
-        
-        metadata_path = self.save_dir / f"{self.experiment_id}_metadata.json"
-        with open(metadata_path, 'w') as f:
-            json.dump(self.metadata, f, indent=2)
-        
-        logger.info(f"Enhanced data saved: {episodes_path}")
-        
-        return {
-            'episodes_file': str(episodes_path),
-            'test_evals_file': str(test_path) if self.test_evaluations else None,
-            'metadata_file': str(metadata_path),
-            'total_episodes': len(self.episodes)
-        }
-
 
 class SimplifiedTrainer:
     """Streamlined trainer for data collection"""
@@ -634,7 +708,7 @@ def run_single_experiment(seed: int, config_name: str, episodes: int, gpu_id: in
         torch.cuda.manual_seed_all(seed)
     
     # Get config
-    config = get_stable_config_v2(config_name)
+    config = get_stable_config_v3(config_name)
     config_dict = config.to_dict()
     config_dict['seed'] = seed
     
